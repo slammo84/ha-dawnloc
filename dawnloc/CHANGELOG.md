@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-rc.3
+
+> [!IMPORTANT]
+> **OpenWrt agent update required:** Update the DAWNLoc agent on every participating OpenWrt node. Without the RC.3 agent, the actual connected access point, channel and frequency band may remain unknown.
+
+- Fix hostapd association detection on OpenWrt versions where `jshn` converts MAC-address object keys from `aa:bb:cc:dd:ee:ff` to `aa_bb_cc_dd_ee_ff`.
+- Restore the original colon-separated MAC address before sending associations to DAWNLoc.
+- Update GitHub Actions to `actions/checkout@v7` and `actions/setup-python@v6` for native Node.js 24 support.
+
 ## 0.1.0-rc.2
 
 > [!IMPORTANT]

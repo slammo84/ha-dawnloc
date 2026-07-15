@@ -89,6 +89,9 @@ collect_associations() {
       original_mac=""
       _json_get_var original_mac "N_${clients_table}_${client_key}"
       [ -n "$original_mac" ] || original_mac="$client_key"
+      # jshn normalizes JSON object keys for shell variables. Restore MAC separators
+      # when the original key mapping is unavailable on this OpenWrt version.
+      original_mac="$(printf '%s' "$original_mac" | tr '_' ':')"
       json_select "$client_key" || continue
       json_get_var associated assoc
       json_get_var authorized authorized

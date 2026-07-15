@@ -4,7 +4,7 @@
 
 set -eu
 
-VERSION="0.1.0-rc.2"
+VERSION="0.1.0-rc.3"
 SOURCE_BASE="${DAWNLOC_SOURCE_BASE:-https://raw.githubusercontent.com/slammo84/ha-dawnloc/main/dawnloc/openwrt}"
 MODE="${1:-install}"
 TTY="/dev/tty"
