@@ -1,0 +1,28 @@
+configuration:
+  raw_topic:
+    name: DAWN raw topic
+    description: MQTT topic where your OpenWrt nodes publish the DAWN hearing map.
+  sample_ttl_seconds:
+    name: Sample lifetime
+    description: Age in seconds after which an RSSI observation is discarded.
+  offline_after_seconds:
+    name: Offline after
+    description: Time without observations before a device is considered unseen.
+  stable_seconds:
+    name: Confirm room change
+    description: Time a new room candidate must remain unchanged before DAWNLoc accepts it.
+  sample_window:
+    name: Filter window
+    description: Number of recent values per AP used by DAWNLoc for median filtering.
+  min_shared_aps:
+    name: Minimum shared APs
+    description: Minimum AP count shared by a live reading and a fingerprint.
+  room_hold_seconds:
+    name: Hold last room
+    description: Time in seconds to keep the last reliable room during uncertain readings. With only one visible AP it remains set while the device is home.
+  switch_confidence:
+    name: Room switch threshold
+    description: Location certainty required before DAWNLoc changes to another room.
+  log_level:
+    name: Log level
+    description: App logging verbosity.
