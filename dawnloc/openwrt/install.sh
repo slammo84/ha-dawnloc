@@ -263,6 +263,11 @@ node_name="$(prompt "Name of this OpenWrt access point" "$current_node")"
 uci -q delete dawnloc.main 2>/dev/null || true
 uci set dawnloc.main='dawnloc'
 uci set dawnloc.main.enabled='1'
+printf '\nWelche Rolle hat dieses Gerät?\n  1) Router / Zentrale (DHCP/DNS und Hearing Map)\n  2) Access Point (nur lokale AP- und Verbindungsdaten)\n'
+read -r role_choice
+case "$role_choice" in 2|ap|AP) role='ap' ;; *) role='router' ;; esac
+uci set dawnloc.main.role="$role"
+
 uci set "dawnloc.main.broker=$mqtt_broker"
 uci set "dawnloc.main.port=$mqtt_port"
 uci set "dawnloc.main.topic=$mqtt_topic"

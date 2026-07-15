@@ -264,6 +264,7 @@ topic="$(get_config topic)"
 interval="$(get_config interval)"
 tls="$(get_config tls)"
 node_name="$(get_config node_name)"
+role="$(get_config role)"
 
 [ -n "$broker" ] || {
   logger -t dawnloc "MQTT broker is not configured"
@@ -275,27 +276,33 @@ node_name="$(get_config node_name)"
 [ -n "$tls" ] || tls=0
 [ -n "$node_name" ] || node_name="$(uci -q get system.@system[0].hostname)"
 [ -n "$node_name" ] || node_name="openwrt"
+[ "$role" = "ap" ] || role="router"
 
 trap 'exit 0' INT TERM
 
 while true; do
-  hearing_map="$(ubus call dawn get_hearing_map 2>/dev/null)"
-  if [ -z "$hearing_map" ]; then
-    logger -t dawnloc "dawn.get_hearing_map returned no data"
-  else
-    access_points="$(collect_access_points)"
-    associations="$(collect_associations)"
+  access_points="$(collect_access_points)"
+  associations="$(collect_associations)"
+
+  if [ "$role" = "router" ]; then
+    hearing_map="$(ubus call dawn get_hearing_map 2>/dev/null)"
     clients="$(collect_clients)"
-    if ! printf '{"node":"%s","generated_at":%s,"hearing_map":%s,"access_points":%s,"associations":%s,"clients":%s}' \
+    [ -n "$hearing_map" ] || hearing_map='{}'
+    printf '{"node":"%s","role":"router","generated_at":%s,"hearing_map":%s,"access_points":%s,"associations":%s,"clients":%s}' \
       "$(printf '%s' "$node_name" | json_escape)" \
       "$(date +%s)" \
       "$hearing_map" \
       "$access_points" \
       "$associations" \
-      "$clients" | publish_payload; then
-      logger -t dawnloc "failed to publish hearing map"
-    fi
+      "$clients" | publish_payload || logger -t dawnloc "failed to publish router payload"
+  else
+    printf '{"node":"%s","role":"ap","generated_at":%s,"access_points":%s,"associations":%s}' \
+      "$(printf '%s' "$node_name" | json_escape)" \
+      "$(date +%s)" \
+      "$access_points" \
+      "$associations" | publish_payload || logger -t dawnloc "failed to publish AP payload"
   fi
+
   sleep "$interval" &
   wait $!
 done

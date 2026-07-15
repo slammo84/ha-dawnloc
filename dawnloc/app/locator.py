@@ -112,6 +112,7 @@ class Locator:
         min_shared_aps: int = 2,
         room_hold_seconds: int = 60,
         switch_confidence: float = 70.0,
+        single_ap_threshold: float = -58.0,
     ) -> None:
         self.store = store
         self.ttl = ttl_seconds
@@ -121,6 +122,7 @@ class Locator:
         self.min_shared_aps = max(2, min_shared_aps)
         self.room_hold_seconds = max(0, room_hold_seconds)
         self.switch_confidence = max(0.0, min(float(switch_confidence), 100.0))
+        self.single_ap_threshold = max(-80.0, min(float(single_ap_threshold), -35.0))
         self.lock = threading.RLock()
         self.history: dict[str, dict[str, deque[tuple[float, float]]]] = defaultdict(
             lambda: defaultdict(lambda: deque(maxlen=self.sample_window))
@@ -490,77 +492,17 @@ class Locator:
         shared_aps = max(match.shared_aps for match in selected)
         return RoomMatch(score, shared_aps, coverage, len(selected))
 
-    def _room_matches(
-        self,
-        device_mac: str,
-        vector: SignalVector,
-    ) -> tuple[dict[str, RoomMatch], str]:
-        # Prefer device-specific fingerprints. When they are missing or
-        # insufficient, use fingerprints from all calibrated devices as a
-        # shared room profile. This is deliberately transparent and remains
-        # a deterministic k-NN model rather than a black box.
-        own = self.store.list_fingerprints(device_mac)
-        source = own
+    def _room_matches(self, device_mac: str, vector: SignalVector) -> tuple[dict[str, RoomMatch], str]:
+        fingerprints = self.store.list_fingerprints(device_mac)
         method = "device_fingerprint"
-        if not own:
-            source = self.store.room_profile_fingerprints()
+        if not fingerprints:
+            fingerprints = self.store.list_fingerprints()
             method = "shared_room_profile"
-
         grouped: dict[str, list[Match]] = defaultdict(list)
-        contributing_devices: dict[str, set[str]] = defaultdict(set)
-        for fingerprint in source:
+        for fingerprint in fingerprints:
             match = self._fingerprint_score(vector, fingerprint["vector"])
-            if math.isfinite(match.score):
-                grouped[fingerprint["room_slug"]].append(match)
-                contributing_devices[fingerprint["room_slug"]].add(
-                    fingerprint["device_mac"]
-                )
-
-        results = {
-            room_slug: self._combine_room_matches(matches)
-            for room_slug, matches in grouped.items()
-            if matches
-        }
-
-        # A shared profile should not claim broad support when it only
-        # contains measurements from one foreign device.
-        if method == "shared_room_profile":
-            results = {
-                room_slug: match
-                for room_slug, match in results.items()
-                if len(contributing_devices[room_slug]) >= 1
-            }
-        return results, method
-
-    def _apply_ap_room_hint(
-        self,
-        matches: dict[str, RoomMatch],
-        device_mac: str,
-        now: float,
-    ) -> tuple[dict[str, RoomMatch], str | None]:
-        association = self.client_associations.get(normalize_mac(device_mac))
-        if not association or now - float(association.get("last_seen", 0)) > self.ttl:
-            return matches, None
-        hostname = association.get("hostname")
-        if not isinstance(hostname, str):
-            return matches, None
-        assignment = self.store.access_point_room_map().get(hostname.casefold())
-        if not assignment or not assignment.get("room_slug"):
-            return matches, None
-        room_slug = str(assignment["room_slug"])
-        weight = float(assignment.get("weight") or 0.08)
-        # Lower score is better. The AP location is only a weak hint and can
-        # never create a match on its own.
-        adjusted: dict[str, RoomMatch] = {}
-        for slug, match in matches.items():
-            bonus = max(0.0, min(3.0, weight * 25.0)) if slug == room_slug else 0.0
-            adjusted[slug] = RoomMatch(
-                max(0.0, match.score - bonus),
-                match.shared_aps,
-                match.coverage,
-                match.support,
-            )
-        return adjusted, room_slug
+            if math.isfinite(match.score): grouped[fingerprint["room_slug"]].append(match)
+        return ({room:self._combine_room_matches(matches) for room,matches in grouped.items() if matches}, method)
 
     def _confidence(
         self,
@@ -621,17 +563,24 @@ class Locator:
             "shared_aps": 0,
             "coverage": 0.0,
             "method": "none",
-            "ap_room_hint": None,
             **connection,
         }
-        if offline or visible_aps < self.min_shared_aps:
+        if offline:
             return result
-        matches, method = self._room_matches(device_mac, vector)
+        if visible_aps == 1:
+            strongest_bssid = max(raw_vector, key=raw_vector.get) if raw_vector else None
+            strongest_rssi = raw_vector.get(strongest_bssid) if strongest_bssid else None
+            hostname = self.ap_metadata.get(strongest_bssid, {}).get("hostname") if strongest_bssid else None
+            assignment = self.store.access_point_room_map().get(str(hostname).casefold()) if hostname else None
+            if assignment and assignment.get("room_slug") and strongest_rssi is not None and strongest_rssi >= self.single_ap_threshold:
+                slug = str(assignment["room_slug"])
+                result.update({"located": True, "instant_room_slug": slug, "instant_room": room_names.get(slug, slug), "confidence": 70.0, "method": "strong_single_ap"})
+            return result
+        if visible_aps < self.min_shared_aps:
+            return result
+        matches, match_method = self._room_matches(device_mac, vector)
         if not matches:
             return result
-        matches, ap_room_hint = self._apply_ap_room_hint(matches, device_mac, now)
-        result["method"] = method
-        result["ap_room_hint"] = ap_room_hint
         ranked = sorted(matches.items(), key=lambda item: item[1].score)
         best_slug, best = ranked[0]
         second = ranked[1][1] if len(ranked) > 1 else None
@@ -650,6 +599,7 @@ class Locator:
                 "second_score": round(second.score, 2) if second else None,
                 "shared_aps": best.shared_aps,
                 "coverage": round(best.coverage, 3),
+                "method": match_method,
             }
         )
         if accepted:
@@ -679,15 +629,9 @@ class Locator:
             if result["offline"]:
                 self._clear_room(mac)
                 continue
-            visible_aps = int(result.get("visible_aps") or 0)
-            if visible_aps == 1:
-                self._reset_candidate(mac)
-                continue
             candidate = result.get("instant_room_slug") if result.get("located") else None
             if candidate is None:
                 self._reset_candidate(mac)
-                if stable and self._room_hold_expired(mac, now):
-                    self._clear_room(mac)
                 continue
             confidence = float(result.get("confidence") or 0.0)
             if candidate == stable:
@@ -699,8 +643,6 @@ class Locator:
             )
             if confidence < required_confidence:
                 self._reset_candidate(mac)
-                if stable and self._room_hold_expired(mac, now):
-                    self._clear_room(mac)
                 continue
             current_candidate = self.candidate_room_slug.get(mac)
             if current_candidate != candidate:
@@ -721,7 +663,7 @@ class Locator:
         now = time.time()
         with self.lock:
             self._update_all_stable(now)
-            for device in self.store.list_devices():
+            for device in self.store.list_devices(include_references=False):
                 state = self.classify(device["mac"], now)
                 state["name"] = device["name"]
                 state["slug"] = device["slug"]
@@ -739,6 +681,8 @@ class Locator:
                 vector = self._group_vector(raw_vector)
                 visible_aps = self._visible_ap_count(vector)
                 metadata = self.client_metadata.get(mac, {})
+                if not metadata.get("ip_address"):
+                    continue
                 clients.append(
                     {
                         "mac": mac,
@@ -750,7 +694,7 @@ class Locator:
                         "visible_aps": visible_aps,
                         "visible_radios": len(vector),
                         "visible_bssids": len(raw_vector),
-                        "locatable": visible_aps >= max(2, self.min_shared_aps),
+                        "locatable": visible_aps >= 1,
                     }
                 )
             grouped: dict[tuple[str, str], dict[str, Any]] = {}

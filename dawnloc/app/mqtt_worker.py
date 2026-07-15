@@ -210,7 +210,7 @@ class MQTTWorker:
             return
 
         self._process_cleanup()
-        devices = self.store.list_devices()
+        devices = self.store.list_devices(include_references=False)
         current_slugs = {device["slug"] for device in devices}
         for stale_slug in self.known_discovery_slugs - current_slugs:
             self._clear_discovery(stale_slug)
@@ -379,6 +379,8 @@ class MQTTWorker:
         )
 
     def publish_device_state(self, device: dict[str, Any]) -> None:
+        if device.get("device_type") == "reference":
+            return
         if not self.connected:
             return
         self.locator.tick()
@@ -388,5 +390,5 @@ class MQTTWorker:
         if not self.connected:
             return
         self.locator.tick()
-        for device in self.store.list_devices():
+        for device in self.store.list_devices(include_references=False):
             self._publish_device_state(device)
