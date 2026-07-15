@@ -1,0 +1,122 @@
+{
+  "header": {
+    "subtitle": "WLAN-basierte Raumortung mit OpenWrt und DAWN"
+  },
+  "language": {
+    "label": "Sprache"
+  },
+  "sections": {
+    "device_locations": "Gerätestandorte",
+    "setup": "Einrichtung",
+    "access_points": "Access Points",
+    "fingerprints": "Gespeicherte Fingerprints",
+    "info": "Info"
+  },
+  "common": {
+    "optional": "(optional)",
+    "delete": "Löschen",
+    "add": "Übernehmen",
+    "unknown": "Unbekannt",
+    "unknown_hostname": "Hostname unbekannt",
+    "unknown_ip": "IP-Adresse unbekannt",
+    "unknown_ap": "Unbekannter Access Point",
+    "unknown_band": "Band unbekannt",
+    "none_yet": "noch keine"
+  },
+  "status": {
+    "mqtt_connected": "MQTT verbunden",
+    "mqtt_disconnected": "MQTT getrennt",
+    "source": "Quelle",
+    "last_data": "Letzte DAWN-Daten",
+    "fingerprints": "{count} Fingerprints"
+  },
+  "device": {
+    "add": "Gerät hinzufügen",
+    "mac": "MAC-Adresse",
+    "name": "Name",
+    "name_placeholder": "Smartphone",
+    "slug": "Entity-Slug",
+    "save": "Gerät speichern",
+    "visible_aps": "{count} APs",
+    "last_seen": "Zuletzt gesehen",
+    "signal_values": "Aktuelle Signalwerte",
+    "discovered_clients": "Entdeckte, ortbare Clients",
+    "already_added": "Bereits hinzugefügt",
+    "current_ap_estimated": "Aktueller AP (geschätzt)",
+    "channel": "Kanal",
+    "band": "Frequenzband"
+  },
+  "rooms": {
+    "title": "Räume",
+    "name": "Name",
+    "placeholder": "Wohnzimmer",
+    "add": "Raum hinzufügen"
+  },
+  "calibration": {
+    "title": "Raum kalibrieren",
+    "description": "Lass das Gerät im Zielraum liegen. Zwei bis drei Messungen an typischen Positionen verbessern die Erkennung.",
+    "device": "Gerät",
+    "room": "Raum",
+    "duration": "Dauer in Sekunden",
+    "start": "Kalibrierung starten",
+    "status": "Status",
+    "remaining": "noch {seconds} s",
+    "ap_count": "{count} APs",
+    "sample_count": "{count} Messwerte",
+    "states": {
+      "running": "läuft",
+      "complete": "abgeschlossen",
+      "failed": "fehlgeschlagen"
+    }
+  },
+  "certainty": {
+    "title": "Ortungssicherheit",
+    "high": "Hohe Ortungssicherheit",
+    "medium": "Mittlere Ortungssicherheit",
+    "low": "Geringe Ortungssicherheit"
+  },
+  "locations": {
+    "unknown": "Unbekannter Standort",
+    "not_seen": "Nicht gesehen"
+  },
+  "access_points": {
+    "last_value": "Letzter Wert"
+  },
+  "fingerprints": {
+    "aps": "APs",
+    "samples": "Messwerte"
+  },
+  "empty": {
+    "no_devices": "Noch keine Geräte konfiguriert.",
+    "no_locatable_clients": "Noch keine ortbaren Clients empfangen. Ein Client muss von mehreren Access Points gesehen werden.",
+    "no_rooms": "Noch keine Räume.",
+    "no_access_points": "Noch keine Access Points empfangen.",
+    "no_fingerprints": "Noch keine Kalibrierungen vorhanden.",
+    "no_fresh_values": "Keine frischen Werte"
+  },
+  "time": {
+    "never": "nie"
+  },
+  "confirm": {
+    "delete_device": "Gerät löschen? Die zugehörigen Home-Assistant-Entitäten werden ebenfalls entfernt.",
+    "delete_room": "Raum und zugehörige Fingerprints löschen?",
+    "delete_fingerprint": "Fingerprint löschen?"
+  },
+  "info": {
+    "p1": "DAWNLoc ermittelt den wahrscheinlichen Aufenthaltsraum von WLAN-Geräten anhand der Empfangswerte mehrerer OpenWrt-Access-Points.",
+    "p2": "Ein Gerät wird nur zur Übernahme angeboten, wenn es von mehreren Access Points gesehen wird. Hostname und IP-Adresse werden ergänzt, soweit sie in den Netzwerkdaten verfügbar sind.",
+    "p3": "Die Ortung über WLAN ist nicht exakt. Wände, Möbel, Personen, Geräteeigenschaften und schwankende Funksignale können das Ergebnis beeinflussen.",
+    "author_label": "Autor:",
+    "license_label": "Lizenz:"
+  },
+  "errors": {
+    "invalid_mac": "Die MAC-Adresse ist ungültig.",
+    "duplicate_device": "Die MAC-Adresse oder der Entity-Slug ist bereits vergeben.",
+    "device_not_found": "Das Gerät wurde nicht gefunden.",
+    "device_not_configured": "Das Gerät ist nicht konfiguriert.",
+    "room_not_configured": "Der Raum ist nicht konfiguriert.",
+    "calibration_not_found": "Die Kalibrierung wurde nicht gefunden.",
+    "no_observations": "Für dieses Gerät wurden keine DAWN-Messwerte empfangen.",
+    "not_enough_access_points": "Die Kalibrierung hat nicht genügend Messwerte von unterschiedlichen Access Points erhalten."
+  }
+}

@@ -1,0 +1,28 @@
+configuration:
+  raw_topic:
+    name: DAWN-Rohdaten-Topic
+    description: MQTT-Topic, auf dem deine OpenWrt-Knoten die DAWN Hearing Map veröffentlichen.
+  sample_ttl_seconds:
+    name: Gültigkeit der Messwerte
+    description: Alter in Sekunden, nach dem ein RSSI-Wert verworfen wird.
+  offline_after_seconds:
+    name: Offline nach
+    description: Zeit ohne Beobachtung, nach der ein Gerät als nicht gesehen gilt.
+  stable_seconds:
+    name: Raumwechsel bestätigen
+    description: So lange muss ein neuer Raumkandidat unverändert bleiben, bevor DAWNLoc ihn übernimmt.
+  sample_window:
+    name: Filterfenster
+    description: Anzahl der letzten Werte pro AP, die DAWNLoc für die Medianfilterung verwendet.
+  min_shared_aps:
+    name: Mindestanzahl gemeinsamer APs
+    description: Anzahl der APs, die eine Live-Messung und ein Fingerprint mindestens gemeinsam haben müssen.
+  room_hold_seconds:
+    name: Letzten Raum halten
+    description: Zeit in Sekunden, für die der letzte sichere Raum bei unsicheren Messwerten erhalten bleibt. Bei nur einem sichtbaren AP bleibt er erhalten, solange das Gerät zu Hause ist.
+  switch_confidence:
+    name: Mindestwert für Raumwechsel
+    description: Erforderliche Ortungssicherheit in Prozent, bevor DAWNLoc zu einem anderen Raum wechselt.
+  log_level:
+    name: Protokollstufe
+    description: Detailgrad der App-Protokolle.
