@@ -1,0 +1,129 @@
+{
+  "header": {
+    "subtitle": "Room-level Wi-Fi location tracking with OpenWrt and DAWN"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "sections": {
+    "device_locations": "Device locations",
+    "setup": "Setup",
+    "access_points": "Access points",
+    "fingerprints": "Saved fingerprints",
+    "info": "Info"
+  },
+  "common": {
+    "optional": "(optional)",
+    "delete": "Delete",
+    "add": "Add",
+    "unknown": "Unknown",
+    "unknown_hostname": "Unknown hostname",
+    "unknown_ip": "Unknown IP address",
+    "unknown_ap": "Unknown access point",
+    "unknown_band": "Unknown band",
+    "none_yet": "none yet",
+    "rename": "Rename"
+  },
+  "status": {
+    "mqtt_connected": "MQTT connected",
+    "mqtt_disconnected": "MQTT disconnected",
+    "source": "Source",
+    "last_data": "Latest DAWN data",
+    "fingerprints": "{count} fingerprints"
+  },
+  "device": {
+    "add": "Add device",
+    "mac": "MAC address",
+    "name": "Name",
+    "name_placeholder": "Smartphone",
+    "slug": "Entity slug",
+    "save": "Save device",
+    "visible_aps": "{count} APs",
+    "last_seen": "Last seen",
+    "signal_values": "Current signal values",
+    "discovered_clients": "Discovered, locatable clients",
+    "already_added": "Already added",
+    "channel": "Channel",
+    "band": "Frequency band",
+    "current_ap": "Current AP"
+  },
+  "rooms": {
+    "title": "Rooms",
+    "name": "Name",
+    "placeholder": "Living room",
+    "add": "Add room",
+    "id": "Room ID",
+    "id_placeholder": "living_room"
+  },
+  "calibration": {
+    "title": "Calibrate room",
+    "description": "Leave the device in the target room. Two or three measurements at typical positions improve detection.",
+    "device": "Device",
+    "room": "Room",
+    "duration": "Duration in seconds",
+    "start": "Start calibration",
+    "status": "Status",
+    "remaining": "{seconds} s remaining",
+    "ap_count": "{count} APs",
+    "sample_count": "{count} samples",
+    "states": {
+      "running": "running",
+      "complete": "complete",
+      "failed": "failed"
+    }
+  },
+  "certainty": {
+    "title": "Location certainty",
+    "high": "High location certainty",
+    "medium": "Medium location certainty",
+    "low": "Low location certainty"
+  },
+  "locations": {
+    "unknown": "Unknown location",
+    "not_seen": "Not seen"
+  },
+  "access_points": {
+    "last_value": "Last value"
+  },
+  "fingerprints": {
+    "aps": "APs",
+    "samples": "Samples"
+  },
+  "empty": {
+    "no_devices": "No devices configured yet.",
+    "no_locatable_clients": "No locatable clients received yet. A client must be visible to multiple access points.",
+    "no_rooms": "No rooms yet.",
+    "no_access_points": "No access points received yet.",
+    "no_fingerprints": "No calibrations saved yet.",
+    "no_fresh_values": "No fresh values"
+  },
+  "time": {
+    "never": "never"
+  },
+  "confirm": {
+    "delete_device": "Delete this device? Its Home Assistant entities will also be removed.",
+    "delete_room": "Delete this room and its fingerprints?",
+    "delete_fingerprint": "Delete this fingerprint?"
+  },
+  "info": {
+    "p1": "DAWNLoc determines the probable room of Wi-Fi devices from signal values collected by multiple OpenWrt access points.",
+    "p2": "A device is only offered for setup when it is visible to multiple access points. Hostname and IP address are added when available from network data.",
+    "p3": "Wi-Fi location tracking is not exact. Walls, furniture, people, device characteristics and changing radio conditions can affect the result.",
+    "author_label": "Author:",
+    "license_label": "License:"
+  },
+  "errors": {
+    "invalid_mac": "The MAC address is invalid.",
+    "duplicate_device": "The MAC address or entity slug is already in use.",
+    "device_not_found": "The device was not found.",
+    "device_not_configured": "The device is not configured.",
+    "room_not_configured": "The room is not configured.",
+    "calibration_not_found": "The calibration was not found.",
+    "no_observations": "No DAWN measurements were received for this device.",
+    "not_enough_access_points": "The calibration did not receive enough measurements from different access points."
+  },
+  "prompt": {
+    "device_name": "New device name",
+    "room_name": "New room name"
+  }
+}
