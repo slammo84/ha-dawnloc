@@ -159,7 +159,7 @@ function renderDeviceCard(device) {
     <div class="device-meta"><code>${escapeHtml(device.device_mac)}</code></div>
     <div class="meter" aria-label="${t("certainty.title")}"><span style="width:${confidence}%"></span></div>
     <div class="device-summary">
-      <strong>${certaintyLabel(confidence)} · ${confidence.toFixed(0)} %</strong>
+      <strong>${certaintyLabel(confidence)} Â· ${confidence.toFixed(0)} %</strong>
       <span>${t("device.current_ap")}: ${escapeHtml(currentAp)}</span>
       <span>${t("device.channel")}: ${escapeHtml(currentChannel)}</span>
       <span>${t("device.band")}: ${escapeHtml(currentBand)}</span>
@@ -218,11 +218,11 @@ function renderClients(clients) {
     return `<tr>
       <td>
         <strong>${escapeHtml(hostname)}</strong><br>
-        <span class="muted">${escapeHtml(ipAddress)} · <code>${escapeHtml(client.mac)}</code></span>
+        <span class="muted">${escapeHtml(ipAddress)} Â· <code>${escapeHtml(client.mac)}</code></span>
       </td>
       <td>${t("device.visible_aps", { count: client.visible_aps })}</td>
       <td>${client.configured
-        ? `<span title="${t("device.already_added")}">✓</span>`
+        ? `<span title="${t("device.already_added")}">âœ“</span>`
         : `<button class="small secondary" onclick="useClient('${escapeHtml(client.mac)}')">${t("common.add")}</button>`}
       </td>
     </tr>`;
@@ -232,7 +232,6 @@ function renderClients(clients) {
 
 function renderRooms(rooms) {
   configuredRooms = new Map(rooms.map((room) => [room.id || room.slug, room]));
-    accessPointRooms = new Map(apRooms.map((item) => [item.hostname.toLocaleLowerCase(), item]));
   if (!rooms.length) {
     byId("rooms").innerHTML = `<p class="muted">${t("empty.no_rooms")}</p>`;
     return;
@@ -341,11 +340,15 @@ async function refresh() {
     ]);
     renderStatus(status);
     configuredDevices = new Map(devices.map((device) => [device.mac, device]));
+    configuredRooms = new Map(rooms.map((room) => [room.id || room.slug, room]));
+    accessPointRooms = new Map(
+      apRooms.map((item) => [item.hostname.toLocaleLowerCase(), item]),
+    );
     renderLive(live);
     renderClients(discovered.clients);
-    renderAccessPoints(discovered.access_points);
     renderRooms(rooms);
     renderSelectors(devices, rooms);
+    renderAccessPoints(discovered.access_points);
     renderFingerprints(fingerprints);
   } catch (error) {
     console.error(error);
@@ -440,9 +443,9 @@ async function pollCalibration() {
       : "";
     byId("calStatus").innerHTML = `
       <div class="message">
-        ${t("calibration.status")}: <b>${t(`calibration.states.${currentCalibration.status}`)}</b> ·
-        ${t("calibration.remaining", { seconds: currentCalibration.remaining_seconds })} ·
-        ${t("calibration.ap_count", { count: currentCalibration.ap_count })} ·
+        ${t("calibration.status")}: <b>${t(`calibration.states.${currentCalibration.status}`)}</b> Â·
+        ${t("calibration.remaining", { seconds: currentCalibration.remaining_seconds })} Â·
+        ${t("calibration.ap_count", { count: currentCalibration.ap_count })} Â·
         ${t("calibration.sample_count", { count: currentCalibration.sample_count })}${error}
       </div>`;
     if (currentCalibration.status === "running") {
