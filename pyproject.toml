@@ -1,0 +1,13 @@
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["dawnloc"]
+testpaths = ["dawnloc/tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["dawnloc/app", "dawnloc/tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]

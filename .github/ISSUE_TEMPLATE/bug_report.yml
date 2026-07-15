@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible problem in DAWNLoc
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed real MAC addresses, SSIDs, credentials and ingress URLs.
+          required: true
+  - type: input
+    attributes:
+      label: DAWNLoc version
+      placeholder: 0.1.0-rc.1
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include the expected and actual result.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Relevant logs or anonymised DAWN payload
+      render: shell
