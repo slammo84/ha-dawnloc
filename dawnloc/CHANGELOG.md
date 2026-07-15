@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0-beta.3.1
+## 0.2.0-beta.4
 
 - Hotfix: Formulare behalten ihre Auswahl; Kalibrierung zeigt AP-, Signal- und Sampledetails.
 - AP-Raumzuordnung, starke Ein-AP-Ortung und stabiler letzter Standort.

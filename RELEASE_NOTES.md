@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0-beta.3.1
+## 0.2.0-beta.4
 
 - AP-Raumzuordnung, starke Ein-AP-Ortung und stabiler letzter Standort.
 - Stationäre Raumanker ohne Home-Assistant-Entitäten.
