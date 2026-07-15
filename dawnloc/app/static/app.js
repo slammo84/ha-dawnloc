@@ -17,6 +17,8 @@ let currentCalibration = null;
 let currentLanguage = "de";
 let translations = {};
 let discoveredClients = new Map();
+let configuredDevices = new Map();
+let configuredRooms = new Map();
 
 function lookup(key) {
   return key.split(".").reduce((value, part) => value?.[part], translations);
@@ -148,13 +150,16 @@ function renderDeviceCard(device) {
         <h4>${escapeHtml(device.name)}</h4>
         <div class="device-addresses">${escapeHtml(ipAddress)}</div>
       </div>
-      <button class="small danger" onclick="deleteDevice('${escapeHtml(device.device_mac)}')">${t("common.delete")}</button>
+      <div class="button-row">
+        <button class="small secondary" onclick="renameDevice('${escapeHtml(device.device_mac)}')">${t("common.rename")}</button>
+        <button class="small danger" onclick="deleteDevice('${escapeHtml(device.device_mac)}')">${t("common.delete")}</button>
+      </div>
     </div>
     <div class="device-meta"><code>${escapeHtml(device.device_mac)}</code></div>
     <div class="meter" aria-label="${t("certainty.title")}"><span style="width:${confidence}%"></span></div>
     <div class="device-summary">
       <strong>${certaintyLabel(confidence)} · ${confidence.toFixed(0)} %</strong>
-      <span>${t("device.current_ap_estimated")}: ${escapeHtml(currentAp)}</span>
+      <span>${t("device.current_ap")}: ${escapeHtml(currentAp)}</span>
       <span>${t("device.channel")}: ${escapeHtml(currentChannel)}</span>
       <span>${t("device.band")}: ${escapeHtml(currentBand)}</span>
       <span>${t("device.visible_aps", { count: device.visible_aps })}</span>
@@ -225,14 +230,18 @@ function renderClients(clients) {
 }
 
 function renderRooms(rooms) {
+  configuredRooms = new Map(rooms.map((room) => [room.id || room.slug, room]));
   if (!rooms.length) {
     byId("rooms").innerHTML = `<p class="muted">${t("empty.no_rooms")}</p>`;
     return;
   }
   const rows = rooms.map((room) => `
     <tr>
-      <td><strong>${escapeHtml(room.name)}</strong></td>
-      <td><button class="small danger" onclick="deleteRoom('${escapeHtml(room.slug)}')">${t("common.delete")}</button></td>
+      <td><strong>${escapeHtml(room.name)}</strong><br><code>${escapeHtml(room.id || room.slug)}</code></td>
+      <td><div class="button-row">
+        <button class="small secondary" onclick="renameRoom('${escapeHtml(room.id || room.slug)}')">${t("common.rename")}</button>
+        <button class="small danger" onclick="deleteRoom('${escapeHtml(room.id || room.slug)}')">${t("common.delete")}</button>
+      </div></td>
     </tr>`).join("");
   byId("rooms").innerHTML = `<table><tbody>${rows}</tbody></table>`;
 }
@@ -304,6 +313,7 @@ async function refresh() {
       api("fingerprints"),
     ]);
     renderStatus(status);
+    configuredDevices = new Map(devices.map((device) => [device.mac, device]));
     renderLive(live);
     renderClients(discovered.clients);
     renderAccessPoints(discovered.access_points);
@@ -312,6 +322,40 @@ async function refresh() {
     renderFingerprints(fingerprints);
   } catch (error) {
     console.error(error);
+  }
+}
+
+async function renameDevice(mac) {
+  const device = configuredDevices.get(mac);
+  const name = window.prompt(t("prompt.device_name"), device?.name || "");
+  if (!name || name.trim() === device?.name) {
+    return;
+  }
+  try {
+    await api(`devices/${encodeURIComponent(mac)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    await refresh();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function renameRoom(roomId) {
+  const room = configuredRooms.get(roomId);
+  const name = window.prompt(t("prompt.room_name"), room?.name || "");
+  if (!name || name.trim() === room?.name) {
+    return;
+  }
+  try {
+    await api(`rooms/${encodeURIComponent(roomId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    await refresh();
+  } catch (error) {
+    window.alert(error.message);
   }
 }
 
@@ -407,7 +451,10 @@ byId("roomForm").addEventListener("submit", async (event) => {
   try {
     await api("rooms", {
       method: "POST",
-      body: JSON.stringify({ name: byId("roomName").value }),
+      body: JSON.stringify({
+        name: byId("roomName").value,
+        slug: byId("roomSlug").value || null,
+      }),
     });
     event.target.reset();
     await refresh();

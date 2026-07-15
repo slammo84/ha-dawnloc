@@ -2,8 +2,8 @@
 
 [English](README.md) | **Deutsch**
 
-![Version](https://img.shields.io/badge/version-0.1.0--rc.1-orange)
-![Status](https://img.shields.io/badge/status-sehr%20frühe%20Beta-orange)
+![Version](https://img.shields.io/badge/version-0.1.0--rc.2-blue)
+![Status](https://img.shields.io/badge/status-Release%20Candidate-blue)
 
 DAWNLoc ist eine Home-Assistant-App zur WLAN-basierten Raumortung mit
 [OpenWrt](https://github.com/openwrt/openwrt) und
@@ -14,8 +14,8 @@ den wahrscheinlichsten Raum eines WLAN-Geräts. Das Ergebnis wird über MQTT
 Discovery an Home Assistant übertragen.
 
 > [!WARNING]
-> DAWNLoc befindet sich in einer sehr frühen Beta-Phase. Konfiguration,
-> Entitäten und Verhalten können sich noch ändern.
+> DAWNLoc ist ein Release Candidate. Konfiguration, Entitäten und Verhalten
+> können sich bis zur stabilen Version noch ändern.
 
 [![Repository zu Home Assistant hinzufügen](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fslammo84%2Fha-dawnloc)
 
@@ -24,8 +24,9 @@ Discovery an Home Assistant übertragen.
 - Raumortung mit mehreren OpenWrt-Access-Points
 - Auswertung der DAWN Hearing Map
 - automatische Erkennung ortbarer WLAN-Clients
-- Anzeige von IP-Adresse, MAC-Adresse, geschätztem aktuellem AP, Kanal und Frequenzband
+- Anzeige von IP-Adresse, MAC-Adresse, verbundenem AP, Kanal und Frequenzband
 - Gruppierung der Geräte nach erkanntem Raum
+- Geräte- und Raumnamen lassen sich ändern, ohne interne IDs anzupassen
 - Anzeige der Ortungssicherheit
 - automatische MQTT-Discovery für Home Assistant
 - deutsche und englische Oberfläche
@@ -74,8 +75,8 @@ Danach kannst du **DAWNLoc** installieren und starten.
 
 ## OpenWrt-Agent installieren
 
-Der Agent sendet die DAWN Hearing Map, lokale AP-Daten und verfügbare
-DHCP-Clientdaten an MQTT. Installiere ihn auf jedem OpenWrt-Access-Point, dessen
+Der Agent sendet die DAWN Hearing Map, lokale AP-Daten, hostapd-Zuordnungen
+und verfügbare DHCP-Clientdaten an MQTT. Installiere ihn auf jedem OpenWrt-Access-Point, dessen
 Hostname und Funkbänder in DAWNLoc erscheinen sollen. Mindestens ein
 installierter Knoten sollte Zugriff auf deine DHCP-Leases haben, damit Hostnamen
 und IP-Adressen ergänzt werden können.
@@ -100,6 +101,14 @@ wget -qO- \
 Das Skript erkennt `opkg` oder `apk`, installiert fehlende Abhängigkeiten, fragt
 deine MQTT-Daten ab, erstellt die UCI-Konfiguration und startet den Dienst.
 
+Einen vorhandenen Agenten aktualisierst du ohne Änderung der MQTT-Konfiguration:
+
+```sh
+wget -O /tmp/ha-dawnloc-install.sh \
+  https://raw.githubusercontent.com/slammo84/ha-dawnloc/main/dawnloc/openwrt/install.sh
+sh /tmp/ha-dawnloc-install.sh --update
+```
+
 ## Einrichtung
 
 1. Lege die Räume an, die du unterscheiden möchtest.
@@ -116,7 +125,7 @@ dessen MQTT-Discovery-Einträge und Home-Assistant-Entitäten.
 
 Access Points werden über ihren Hostnamen angezeigt. Pro physischem AP erscheint
 soweit verfügbar einmal 2,4 GHz und einmal 5 GHz. Name und BSSID werden
-automatisch erkannt und können nicht bearbeitet werden.
+automatisch erkannt. Die Namen von Geräten und Räumen können nachträglich geändert werden.
 
 ## Ortungssicherheit
 

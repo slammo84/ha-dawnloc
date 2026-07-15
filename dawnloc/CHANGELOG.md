@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-rc.2
+
+> [!IMPORTANT]
+> **OpenWrt agent update required:** Update the DAWNLoc agent on every participating OpenWrt node after installing this release. The actual connected access point, channel and frequency band cannot be reported until the nodes run the RC.2 agent.
+
+- Read the actual client association from hostapd and publish the connected access point, BSSID, channel and frequency band.
+- Remove the estimated label from the current access-point entity and leave it unknown when no association is available.
+- Allow configured devices and rooms to be renamed after setup.
+- Keep device entity slugs and room IDs stable so renaming does not affect Home Assistant entities or stored fingerprints.
+
 ## 0.1.0-rc.1
 
 - Group signal measurements by physical access point and frequency band before matching them against room fingerprints.

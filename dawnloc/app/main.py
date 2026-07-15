@@ -125,6 +125,10 @@ class RoomInput(BaseModel):
     slug: str | None = None
 
 
+class NameInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
 class CalibrationInput(BaseModel):
     device_mac: str
     room_slug: str
@@ -204,6 +208,18 @@ def delete_device(mac: str) -> dict[str, bool]:
     return {"ok": True}
 
 
+@app.patch("/api/devices/{mac}")
+def rename_device(mac: str, item: NameInput) -> dict[str, Any]:
+    if not is_mac(mac):
+        raise HTTPException(status_code=400, detail="errors.invalid_mac")
+    device = STORE.rename_device(mac, item.name)
+    if device is None:
+        raise HTTPException(status_code=404, detail="errors.device_not_found")
+    MQTT.sync_discovery()
+    MQTT.publish_device_state(device)
+    return device
+
+
 @app.get("/api/rooms")
 def rooms() -> list[dict[str, Any]]:
     return STORE.list_rooms()
@@ -218,6 +234,15 @@ def add_room(item: RoomInput) -> dict[str, Any]:
 def delete_room(slug: str) -> dict[str, bool]:
     STORE.delete_room(slug)
     return {"ok": True}
+
+
+@app.patch("/api/rooms/{room_id}")
+def rename_room(room_id: str, item: NameInput) -> dict[str, Any]:
+    room = STORE.rename_room(room_id, item.name)
+    if room is None:
+        raise HTTPException(status_code=404, detail="errors.room_not_configured")
+    MQTT.publish_all_states()
+    return room
 
 
 @app.get("/api/fingerprints")

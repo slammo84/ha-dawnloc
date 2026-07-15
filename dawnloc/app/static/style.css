@@ -366,3 +366,9 @@ details summary {
     gap: 2px;
   }
 }
+
+.button-row {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}

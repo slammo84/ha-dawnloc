@@ -20,12 +20,14 @@ reported by multiple OpenWrt access points running DAWN.
 5. Record fingerprints in each room at typical device positions.
 
 The web interface shows access points by hostname and groups saved devices by
-their detected room. Deleting a device also removes its MQTT Discovery entries.
+their detected room. Device and room names can be changed without changing their
+entity slugs, room IDs or fingerprints. Deleting a device also removes its MQTT
+Discovery entries.
 
 ## Home Assistant entities
 
 For every configured device, MQTT Discovery creates a device tracker and sensors
-for the stable room, current room candidate, location certainty, estimated current AP,
+for the stable room, current room candidate, location certainty, associated access point,
 channel, frequency band, visible AP count and last-seen timestamp. The tracker reports
 `home` while the device is still seen on the network and `not_home` after the offline timeout.
 

@@ -1,5 +1,5 @@
 name: DAWNLoc
-version: "0.1.0-rc.1"
+version: "0.1.0-rc.2"
 slug: dawnloc
 description: Room-level Wi-Fi location tracking from OpenWrt DAWN data
 url: https://github.com/slammo84/ha-dawnloc

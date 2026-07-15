@@ -21,7 +21,8 @@
     "unknown_ip": "Unknown IP address",
     "unknown_ap": "Unknown access point",
     "unknown_band": "Unknown band",
-    "none_yet": "none yet"
+    "none_yet": "none yet",
+    "rename": "Rename"
   },
   "status": {
     "mqtt_connected": "MQTT connected",
@@ -42,15 +43,17 @@
     "signal_values": "Current signal values",
     "discovered_clients": "Discovered, locatable clients",
     "already_added": "Already added",
-    "current_ap_estimated": "Current AP (estimated)",
     "channel": "Channel",
-    "band": "Frequency band"
+    "band": "Frequency band",
+    "current_ap": "Current AP"
   },
   "rooms": {
     "title": "Rooms",
     "name": "Name",
     "placeholder": "Living room",
-    "add": "Add room"
+    "add": "Add room",
+    "id": "Room ID",
+    "id_placeholder": "living_room"
   },
   "calibration": {
     "title": "Calibrate room",
@@ -118,5 +121,9 @@
     "calibration_not_found": "The calibration was not found.",
     "no_observations": "No DAWN measurements were received for this device.",
     "not_enough_access_points": "The calibration did not receive enough measurements from different access points."
+  },
+  "prompt": {
+    "device_name": "New device name",
+    "room_name": "New room name"
   }
 }

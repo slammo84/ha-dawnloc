@@ -35,6 +35,7 @@ collect_access_points() {
     [ -n "$bssid" ] || continue
     frequency="$(printf '%s' "$status" | jsonfilter -e '@.freq' 2>/dev/null)"
     [ -n "$frequency" ] || frequency="$(printf '%s' "$status" | jsonfilter -e '@.frequency' 2>/dev/null)"
+    channel="$(printf '%s' "$status" | jsonfilter -e '@.channel' 2>/dev/null)"
     ssid="$(printf '%s' "$status" | jsonfilter -e '@.ssid' 2>/dev/null)"
     band="$(band_from_frequency "$frequency")"
 
@@ -48,10 +49,76 @@ collect_access_points() {
       ''|*[!0-9]*) ;;
       *) printf ',"frequency":%s' "$frequency" ;;
     esac
+    case "$channel" in
+      ''|*[!0-9]*) ;;
+      *) printf ',"channel":%s' "$channel" ;;
+    esac
     if [ -n "$ssid" ]; then
       printf ',"ssid":"%s"' "$(printf '%s' "$ssid" | json_escape)"
     fi
     printf '}'
+  done
+  printf ']'
+}
+
+collect_associations() {
+  [ -r /usr/share/libubox/jshn.sh ] || {
+    printf '[]'
+    return 0
+  }
+  . /usr/share/libubox/jshn.sh
+
+  first=1
+  printf '['
+  for object in $(ubus list 'hostapd.*' 2>/dev/null); do
+    status="$(ubus call "$object" get_status 2>/dev/null)" || continue
+    clients="$(ubus call "$object" get_clients 2>/dev/null)" || continue
+    bssid="$(printf '%s' "$status" | jsonfilter -e '@.bssid' 2>/dev/null)"
+    [ -n "$bssid" ] || continue
+    frequency="$(printf '%s' "$status" | jsonfilter -e '@.freq' 2>/dev/null)"
+    [ -n "$frequency" ] || frequency="$(printf '%s' "$status" | jsonfilter -e '@.frequency' 2>/dev/null)"
+    channel="$(printf '%s' "$status" | jsonfilter -e '@.channel' 2>/dev/null)"
+    band="$(band_from_frequency "$frequency")"
+
+    json_init
+    json_load "$clients" || continue
+    json_select clients || continue
+    _json_get_var clients_table JSON_CUR
+    json_get_keys client_macs
+    for client_key in $client_macs; do
+      original_mac=""
+      _json_get_var original_mac "N_${clients_table}_${client_key}"
+      [ -n "$original_mac" ] || original_mac="$client_key"
+      json_select "$client_key" || continue
+      json_get_var associated assoc
+      json_get_var authorized authorized
+      json_get_var signal signal
+      json_select ..
+      [ "$associated" = "1" ] || [ "$authorized" = "1" ] || continue
+      mac="$(printf '%s' "$original_mac" | tr 'A-F' 'a-f')"
+
+      [ "$first" -eq 1 ] || printf ','
+      first=0
+      printf '{"mac":"%s","bssid":"%s","hostname":"%s","band":"%s"' \
+        "$(printf '%s' "$mac" | json_escape)" \
+        "$(printf '%s' "$bssid" | json_escape)" \
+        "$(printf '%s' "$node_name" | json_escape)" \
+        "$(printf '%s' "$band" | json_escape)"
+      case "$frequency" in
+        ''|*[!0-9]*) ;;
+        *) printf ',"frequency":%s' "$frequency" ;;
+      esac
+      case "$channel" in
+        ''|*[!0-9]*) ;;
+        *) printf ',"channel":%s' "$channel" ;;
+      esac
+      case "$signal" in
+        ''|'-'|*[!0-9-]*) ;;
+        *) printf ',"signal":%s' "$signal" ;;
+      esac
+      printf '}'
+    done
+    json_select .. 2>/dev/null || true
   done
   printf ']'
 }
@@ -214,12 +281,14 @@ while true; do
     logger -t dawnloc "dawn.get_hearing_map returned no data"
   else
     access_points="$(collect_access_points)"
+    associations="$(collect_associations)"
     clients="$(collect_clients)"
-    if ! printf '{"node":"%s","generated_at":%s,"hearing_map":%s,"access_points":%s,"clients":%s}' \
+    if ! printf '{"node":"%s","generated_at":%s,"hearing_map":%s,"access_points":%s,"associations":%s,"clients":%s}' \
       "$(printf '%s' "$node_name" | json_escape)" \
       "$(date +%s)" \
       "$hearing_map" \
       "$access_points" \
+      "$associations" \
       "$clients" | publish_payload; then
       logger -t dawnloc "failed to publish hearing map"
     fi

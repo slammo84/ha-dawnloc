@@ -138,12 +138,14 @@ class MQTTWorker:
 
         clients = payload.get("clients")
         access_points = payload.get("access_points")
+        associations = payload.get("associations")
         self.locator.ingest(
             observations,
             generated_at=_optional_timestamp(payload.get("generated_at")),
             source_node=payload.get("node") if isinstance(payload.get("node"), str) else None,
             clients=clients if isinstance(clients, list) else None,
             access_points=access_points if isinstance(access_points, list) else None,
+            associations=associations if isinstance(associations, list) else None,
         )
         self.publish_all_states()
 
@@ -285,7 +287,7 @@ class MQTTWorker:
                 "entity_category": "diagnostic",
             },
             "current_ap": {
-                "name": "Aktueller AP (geschätzt)",
+                "name": "Aktueller AP",
                 "value_template": "{{ value_json.current_ap }}",
                 "icon": "mdi:access-point",
                 "entity_category": "diagnostic",

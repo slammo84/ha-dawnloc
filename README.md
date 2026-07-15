@@ -2,8 +2,8 @@
 
 **English** | [Deutsch](README.de.md)
 
-![Version](https://img.shields.io/badge/version-0.1.0--rc.1-orange)
-![Status](https://img.shields.io/badge/status-early%20beta-orange)
+![Version](https://img.shields.io/badge/version-0.1.0--rc.2-blue)
+![Status](https://img.shields.io/badge/status-release%20candidate-blue)
 
 DAWNLoc is a Home Assistant app for room-level Wi-Fi location tracking with
 [OpenWrt](https://github.com/openwrt/openwrt) and
@@ -14,8 +14,8 @@ the most likely room for a Wi-Fi device. The result is published to Home
 Assistant through MQTT Discovery.
 
 > [!WARNING]
-> DAWNLoc is in a very early beta stage. Configuration, entities and behaviour
-> may still change.
+> DAWNLoc is a release candidate. Configuration, entities and behaviour may
+> still change before the stable release.
 
 [![Add repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fslammo84%2Fha-dawnloc)
 
@@ -24,8 +24,9 @@ Assistant through MQTT Discovery.
 - room-level detection using multiple OpenWrt access points
 - DAWN hearing map processing
 - automatic discovery of locatable Wi-Fi clients
-- IP address, MAC address, estimated current AP, channel and frequency band display
+- IP address, MAC address, associated AP, channel and frequency band display
 - devices grouped by their detected room
+- device and room names can be changed without changing their internal IDs
 - location certainty indicator
 - automatic Home Assistant MQTT Discovery
 - German and English web interface
@@ -72,8 +73,8 @@ Then install and start **DAWNLoc**.
 
 ## Install the OpenWrt agent
 
-The agent sends the DAWN hearing map, local AP information and available DHCP
-client data to MQTT. Install it on every OpenWrt access point whose hostname and
+The agent sends the DAWN hearing map, local AP information, hostapd client
+associations and available DHCP client data to MQTT. Install it on every OpenWrt access point whose hostname and
 radios should appear in DAWNLoc. At least one installed node should have access
 to your DHCP leases so hostnames and IP addresses can be added.
 
@@ -96,6 +97,14 @@ wget -qO- \
 
 The installer detects `opkg` or `apk`, installs missing dependencies, asks for
 your MQTT settings, creates the UCI configuration and starts the service.
+
+Update an existing agent without changing its MQTT configuration:
+
+```sh
+wget -O /tmp/ha-dawnloc-install.sh \
+  https://raw.githubusercontent.com/slammo84/ha-dawnloc/main/dawnloc/openwrt/install.sh
+sh /tmp/ha-dawnloc-install.sh --update
+```
 
 ## Setup
 

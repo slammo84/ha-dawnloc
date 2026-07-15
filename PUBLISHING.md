@@ -13,8 +13,8 @@ For a release, update the version in `dawnloc/config.yaml` and
 `dawnloc/app/__init__.py`, then create the tag:
 
 ```bash
-git tag -a v0.1.0-rc.1 -m "DAWNLoc 0.1.0-rc.1"
-git push origin v0.1.0-rc.1
+git tag -a v0.1.0-rc.2 -m "DAWNLoc 0.1.0-rc.2"
+git push origin v0.1.0-rc.2
 ```
 
 Home Assistant reads custom app repositories directly from Git. A GitHub Release

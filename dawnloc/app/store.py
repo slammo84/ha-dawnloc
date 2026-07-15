@@ -22,6 +22,14 @@ def slugify(value: str) -> str:
     return SLUG_RE.sub("_", value).strip("_") or "item"
 
 
+def room_record(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    item = dict(row)
+    item["id"] = item["slug"]
+    return item
+
+
 class Store:
     def __init__(self, path: str) -> None:
         self.conn = sqlite3.connect(path, check_same_thread=False)
@@ -95,7 +103,8 @@ class Store:
 
     def upsert_device(self, mac: str, name: str, slug: str | None = None) -> dict[str, Any]:
         mac = normalize_mac(mac)
-        slug = slugify(slug or name)
+        existing = self.get_device(mac)
+        stable_slug = existing["slug"] if existing else slugify(slug or name)
         with self.lock, self.conn:
             self.conn.execute(
                 """
@@ -103,12 +112,20 @@ class Store:
                 VALUES (?, ?, ?, 1, ?)
                 ON CONFLICT(mac) DO UPDATE SET
                     name=excluded.name,
-                    slug=excluded.slug,
                     enabled=1
                 """,
-                (mac, name.strip(), slug, time.time()),
+                (mac, name.strip(), stable_slug, time.time()),
             )
         return self.get_device(mac) or {}
+
+    def rename_device(self, mac: str, name: str) -> dict[str, Any] | None:
+        mac = normalize_mac(mac)
+        with self.lock, self.conn:
+            self.conn.execute(
+                "UPDATE devices SET name = ? WHERE mac = ?",
+                (name.strip(), mac),
+            )
+        return self.get_device(mac)
 
     def delete_device(self, mac: str) -> None:
         mac = normalize_mac(mac)
@@ -137,10 +154,17 @@ class Store:
             rows = self.conn.execute(
                 "SELECT * FROM rooms ORDER BY name COLLATE NOCASE"
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [room_record(row) or {} for row in rows]
+
+    def get_room(self, room_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT * FROM rooms WHERE slug = ?", (room_id,)
+            ).fetchone()
+        return room_record(row)
 
     def upsert_room(self, name: str, slug: str | None = None) -> dict[str, Any]:
-        slug = slugify(slug or name)
+        room_id = slugify(slug or name)
         with self.lock, self.conn:
             self.conn.execute(
                 """
@@ -148,14 +172,21 @@ class Store:
                 VALUES (?, ?, ?)
                 ON CONFLICT(slug) DO UPDATE SET name=excluded.name
                 """,
-                (slug, name.strip(), time.time()),
+                (room_id, name.strip(), time.time()),
             )
-            row = self.conn.execute("SELECT * FROM rooms WHERE slug = ?", (slug,)).fetchone()
-        return dict(row) if row else {}
+        return self.get_room(room_id) or {}
 
-    def delete_room(self, slug: str) -> None:
+    def rename_room(self, room_id: str, name: str) -> dict[str, Any] | None:
         with self.lock, self.conn:
-            self.conn.execute("DELETE FROM rooms WHERE slug = ?", (slug,))
+            self.conn.execute(
+                "UPDATE rooms SET name = ? WHERE slug = ?",
+                (name.strip(), room_id),
+            )
+        return self.get_room(room_id)
+
+    def delete_room(self, room_id: str) -> None:
+        with self.lock, self.conn:
+            self.conn.execute("DELETE FROM rooms WHERE slug = ?", (room_id,))
 
     def room_names(self) -> dict[str, str]:
         with self.lock:
@@ -209,6 +240,7 @@ class Store:
         fingerprints = []
         for row in rows:
             item = dict(row)
+            item["room_id"] = item["room_slug"]
             item["vector"] = json.loads(item.pop("vector_json"))
             fingerprints.append(item)
         return fingerprints

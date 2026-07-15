@@ -403,36 +403,76 @@ def test_room_switch_requires_configured_confidence(store):
     assert result["stable_room"] == "Kitchen"
 
 
-def test_current_ap_channel_and_band_use_strongest_fresh_bssid(store):
+def test_current_ap_channel_and_band_use_hostapd_association(store):
     store.upsert_device(CLIENT, "Test phone", "test_phone")
     locator = Locator(store, min_shared_aps=2)
     locator.ingest(
         parse_hearing_map(
-            {"Home": {CLIENT: {AP_ONE: {"signal": -45}, AP_TWO: {"signal": -70}}}}
+            {"Home": {CLIENT: {AP_ONE: {"signal": -70}, AP_TWO: {"signal": -45}}}}
         ),
+        source_node="ap-lina",
         access_points=[
             {
                 "bssid": AP_ONE,
                 "hostname": "ap-lina",
                 "band": "5 GHz",
                 "frequency": 5180,
+                "channel": 36,
             },
             {
                 "bssid": AP_TWO,
                 "hostname": "router",
                 "band": "2.4 GHz",
                 "frequency": 2412,
+                "channel": 1,
             },
+        ],
+        associations=[
+            {
+                "mac": CLIENT,
+                "bssid": AP_ONE,
+                "hostname": "ap-lina",
+                "band": "5 GHz",
+                "frequency": 5180,
+                "channel": 36,
+                "signal": -70,
+            }
         ],
     )
 
     result = locator.classify(CLIENT)
 
     assert result["current_ap"] == "ap-lina"
+    assert result["current_bssid"] == AP_ONE
     assert result["current_channel"] == 36
     assert result["current_frequency"] == 5180
     assert result["current_band"] == "5 GHz"
-    assert result["current_ap_estimated"] is True
+    assert result["current_ap_estimated"] is False
+    assert result["strongest_ap"] == "router"
+
+
+def test_current_ap_is_unknown_without_hostapd_association(store):
+    store.upsert_device(CLIENT, "Test phone", "test_phone")
+    locator = Locator(store, min_shared_aps=2)
+    locator.ingest(
+        parse_hearing_map({"Home": {CLIENT: {AP_ONE: {"signal": -45}}}}),
+        access_points=[
+            {
+                "bssid": AP_ONE,
+                "hostname": "ap-lina",
+                "band": "5 GHz",
+                "frequency": 5180,
+                "channel": 36,
+            }
+        ],
+    )
+
+    result = locator.classify(CLIENT)
+
+    assert result["current_ap"] is None
+    assert result["current_channel"] is None
+    assert result["current_band"] is None
+    assert result["strongest_ap"] == "ap-lina"
 
 
 def test_device_tracker_stays_home_without_room_fix(store):
@@ -462,3 +502,35 @@ def test_device_tracker_stays_home_without_room_fix(store):
     assert payload["presence"] == "home"
     assert payload["room"] == "Nicht geortet"
     assert payload["located"] is False
+
+
+def test_device_rename_keeps_entity_slug(store):
+    original = store.upsert_device(CLIENT, "Marcel phone", "marcel_handy")
+    renamed = store.rename_device(CLIENT, "Marcel Smartphone")
+
+    assert original["slug"] == "marcel_handy"
+    assert renamed is not None
+    assert renamed["name"] == "Marcel Smartphone"
+    assert renamed["slug"] == "marcel_handy"
+
+
+def test_room_rename_keeps_room_id_and_fingerprints(store):
+    store.upsert_device(CLIENT, "Test phone", "test_phone")
+    room = store.upsert_room("Living room", "living_room")
+    fingerprint_id = store.add_fingerprint(
+        CLIENT,
+        "living_room",
+        {"ap:ap-one|5 ghz": -55, "ap:ap-two|5 ghz": -65},
+        20,
+    )
+
+    renamed = store.rename_room("living_room", "Lounge")
+    fingerprints = store.list_fingerprints()
+
+    assert room["id"] == "living_room"
+    assert renamed is not None
+    assert renamed["id"] == "living_room"
+    assert renamed["name"] == "Lounge"
+    assert fingerprints[0]["id"] == fingerprint_id
+    assert fingerprints[0]["room_id"] == "living_room"
+    assert fingerprints[0]["room_name"] == "Lounge"

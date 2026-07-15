@@ -4,7 +4,7 @@
 
 set -eu
 
-VERSION="0.1.0-rc.1"
+VERSION="0.1.0-rc.2"
 SOURCE_BASE="${DAWNLOC_SOURCE_BASE:-https://raw.githubusercontent.com/slammo84/ha-dawnloc/main/dawnloc/openwrt}"
 MODE="${1:-install}"
 TTY="/dev/tty"
@@ -144,6 +144,7 @@ esac
 ensure_command ubus ubus
 ensure_command uci uci
 ensure_command jsonfilter jsonfilter
+ensure_command jshn jshn
 ensure_command awk busybox
 ensure_command logger busybox
 
