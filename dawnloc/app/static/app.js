@@ -19,6 +19,7 @@ let translations = {};
 let discoveredClients = new Map();
 let configuredDevices = new Map();
 let configuredRooms = new Map();
+let accessPointRooms = new Map();
 
 function lookup(key) {
   return key.split(".").reduce((value, part) => value?.[part], translations);
@@ -231,6 +232,7 @@ function renderClients(clients) {
 
 function renderRooms(rooms) {
   configuredRooms = new Map(rooms.map((room) => [room.id || room.slug, room]));
+    accessPointRooms = new Map(apRooms.map((item) => [item.hostname.toLocaleLowerCase(), item]));
   if (!rooms.length) {
     byId("rooms").innerHTML = `<p class="muted">${t("empty.no_rooms")}</p>`;
     return;
@@ -264,22 +266,46 @@ function renderSelectors(devices, rooms) {
   }
 }
 
+async function assignAccessPointRoom(hostname, roomSlug) {
+  await api(`access-point-rooms/${encodeURIComponent(hostname)}`, {
+    method: "PUT",
+    body: JSON.stringify({ room_slug: roomSlug || null, weight: 0.08 }),
+  });
+  await refresh();
+}
+
 function renderAccessPoints(accessPoints) {
   if (!accessPoints.length) {
     byId("aps").innerHTML = t("empty.no_access_points");
     return;
   }
 
+  const roomOptions = [...configuredRooms.values()]
+    .map((room) => `<option value="${escapeHtml(room.slug)}">${escapeHtml(room.name)}</option>`)
+    .join("");
+
   const rows = accessPoints.map((accessPoint) => {
     const hostname = accessPoint.hostname || t("common.unknown_ap");
     const band = accessPoint.band === "unknown" ? t("common.unknown_band") : accessPoint.band;
+    const assigned = accessPointRooms.get(hostname.toLocaleLowerCase())?.room_slug || "";
     return `<div class="ap-row">
       <div class="ap-name"><strong>${escapeHtml(hostname)}</strong><span>${escapeHtml(band)}</span></div>
       <code>${escapeHtml(accessPoint.bssid)}</code>
+      <select onchange="assignAccessPointRoom('${escapeHtml(hostname)}', this.value)">
+        <option value="">Keinem Raum zugeordnet</option>
+        ${roomOptions}
+      </select>
       <span class="muted">${t("access_points.last_value")} ${relativeAgeSeconds(accessPoint.age_seconds)}</span>
     </div>`;
   }).join("");
   byId("aps").innerHTML = `<div class="ap-list">${rows}</div>`;
+  accessPoints.forEach((accessPoint) => {
+    const hostname = accessPoint.hostname || "";
+    const assigned = accessPointRooms.get(hostname.toLocaleLowerCase())?.room_slug || "";
+    const selects = [...byId("aps").querySelectorAll("select")];
+    const target = selects.find((select) => select.getAttribute("onchange")?.includes(`'${hostname}'`));
+    if (target) target.value = assigned;
+  });
 }
 
 function renderFingerprints(fingerprints) {
@@ -304,13 +330,14 @@ function renderFingerprints(fingerprints) {
 
 async function refresh() {
   try {
-    const [status, live, discovered, devices, rooms, fingerprints] = await Promise.all([
+    const [status, live, discovered, devices, rooms, fingerprints, apRooms] = await Promise.all([
       api("status"),
       api("live"),
       api("discovered"),
       api("devices"),
       api("rooms"),
       api("fingerprints"),
+      api("access-point-rooms"),
     ]);
     renderStatus(status);
     configuredDevices = new Map(devices.map((device) => [device.mac, device]));

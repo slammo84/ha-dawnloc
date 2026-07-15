@@ -1,40 +1,48 @@
-# DAWNLoc
+# DAWNLoc Beta – 0.2.0-beta.1
 
-DAWNLoc determines the most likely room of a Wi-Fi device from signal values
-reported by multiple OpenWrt access points running DAWN.
+> Experimentelle Testversion. Nicht als stabile Produktivversion behandeln.
 
-## Requirements
+Diese Beta testet eine neue Raumortungslogik:
 
-- Home Assistant with app support
-- MQTT integration and an MQTT broker
-- multiple OpenWrt access points running DAWN
-- the DAWNLoc OpenWrt agent on the participating nodes
-- a fixed MAC address for each tracked device on your home Wi-Fi
+- eigene Geräte-Fingerprints werden weiterhin bevorzugt,
+- fehlen eigene Fingerprints, werden gemeinsame Raumprofile aus bewusst kalibrierten Messungen anderer Geräte verwendet,
+- Access-Point-Knoten können Räumen zugeordnet werden,
+- die AP-Raumzuordnung ist nur ein schwacher Hinweis und niemals eine harte Raumregel.
 
-## Setup
+## Installation in Home Assistant
 
-1. Install and start the DAWNLoc app.
-2. Run `dawnloc/openwrt/install.sh` on the participating OpenWrt nodes.
-3. Add the rooms you want to distinguish.
-4. Add a client after it is visible to multiple physical access points.
-5. Record fingerprints in each room at typical device positions.
+Dieses Repository enthält zwei Add-on-Trees:
 
-The web interface shows access points by hostname and groups saved devices by
-their detected room. Device and room names can be changed without changing their
-entity slugs, room IDs or fingerprints. Deleting a device also removes its MQTT
-Discovery entries.
+- `dawnloc/` – stabile Version
+- `dawnloc-beta/` – experimentelle Version 0.2
 
-## Home Assistant entities
+Im Add-on-Store erscheint die Testversion als **DAWNLoc Beta**.
 
-For every configured device, MQTT Discovery creates a device tracker and sensors
-for the stable room, current room candidate, location certainty, associated access point,
-channel, frequency band, visible AP count and last-seen timestamp. The tracker reports
-`home` while the device is still seen on the network and `not_home` after the offline timeout.
+### Vor dem Test
 
-## Limitations
+1. Vollständiges Home-Assistant-Backup erstellen.
+2. Stabiles DAWNLoc stoppen.
+3. DAWNLoc Beta installieren und konfigurieren.
+4. Stable und Beta niemals gleichzeitig starten, da beide dieselben OpenWrt-Rohdaten verarbeiten.
+5. Räume und Kalibrierungen in der Beta zunächst kontrolliert neu anlegen.
 
-Wi-Fi signal values are affected by walls, furniture, people, power saving,
-roaming and device hardware. DAWNLoc provides an approximate room assignment,
-not precise positioning.
+## Testschwerpunkte
 
-Do not track people or devices without permission.
+- Erkennt ein fremdes, noch nicht in diesem Raum kalibriertes Gerät den Raum anhand gemeinsamer Werte?
+- Bleiben geräteeigene Fingerprints genauer und bevorzugt?
+- Verbessert eine korrekte AP-Raumzuordnung knappe Entscheidungen?
+- Verursacht eine falsche AP-Raumzuordnung keinen harten Fehlentscheid?
+- Springt die stabile Raumzuordnung nicht zwischen benachbarten Räumen?
+
+## APs Räumen zuordnen
+
+Im Bereich **Access Points** kann jedem physischen AP-Knoten ein Raum zugewiesen werden. Alle BSSIDs und Frequenzbänder desselben Hostnamens teilen sich diese Standortangabe.
+
+Die Zuordnung verändert keine Fingerprints. Sie liefert lediglich einen kleinen Bonus bei ansonsten ähnlichen Ergebnissen.
+
+## Rückkehr zur Stable-Version
+
+1. DAWNLoc Beta stoppen.
+2. Stabiles DAWNLoc starten.
+3. Beta bei Bedarf deinstallieren.
+4. Bei Problemen das vorher erstellte Home-Assistant-Backup wiederherstellen.

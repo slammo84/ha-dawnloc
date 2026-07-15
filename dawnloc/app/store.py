@@ -77,6 +77,14 @@ class Store:
                     slug TEXT PRIMARY KEY,
                     created_at REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS access_point_rooms (
+                    hostname TEXT PRIMARY KEY,
+                    room_slug TEXT,
+                    weight REAL NOT NULL DEFAULT 0.08,
+                    updated_at REAL NOT NULL,
+                    FOREIGN KEY(room_slug) REFERENCES rooms(slug) ON DELETE SET NULL
+                );
                 """
             )
 
@@ -248,3 +256,58 @@ class Store:
     def delete_fingerprint(self, fingerprint_id: int) -> None:
         with self.lock, self.conn:
             self.conn.execute("DELETE FROM fingerprints WHERE id = ?", (fingerprint_id,))
+
+    def list_access_point_rooms(self) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self.conn.execute(
+                """
+                SELECT a.hostname, a.room_slug, a.weight, a.updated_at,
+                       r.name AS room_name
+                FROM access_point_rooms a
+                LEFT JOIN rooms r ON r.slug = a.room_slug
+                ORDER BY a.hostname COLLATE NOCASE
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def access_point_room_map(self) -> dict[str, dict[str, Any]]:
+        return {
+            str(item["hostname"]).casefold(): item
+            for item in self.list_access_point_rooms()
+        }
+
+    def set_access_point_room(
+        self,
+        hostname: str,
+        room_slug: str | None,
+        weight: float = 0.08,
+    ) -> dict[str, Any]:
+        hostname = hostname.strip()
+        if not hostname:
+            raise ValueError("hostname is required")
+        if room_slug and not self.get_room(room_slug):
+            raise ValueError("errors.room_not_configured")
+        weight = max(0.0, min(float(weight), 0.25))
+        with self.lock, self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO access_point_rooms(hostname, room_slug, weight, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(hostname) DO UPDATE SET
+                    room_slug=excluded.room_slug,
+                    weight=excluded.weight,
+                    updated_at=excluded.updated_at
+                """,
+                (hostname, room_slug or None, weight, time.time()),
+            )
+        return next(
+            item for item in self.list_access_point_rooms()
+            if item["hostname"].casefold() == hostname.casefold()
+        )
+
+    def room_profile_fingerprints(self) -> list[dict[str, Any]]:
+        # All consciously calibrated fingerprints are eligible for the
+        # shared profile. Device count is retained so one device cannot
+        # silently masquerade as broad support.
+        return self.list_fingerprints()
+

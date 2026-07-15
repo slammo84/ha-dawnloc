@@ -490,17 +490,77 @@ class Locator:
         shared_aps = max(match.shared_aps for match in selected)
         return RoomMatch(score, shared_aps, coverage, len(selected))
 
-    def _room_matches(self, device_mac: str, vector: SignalVector) -> dict[str, RoomMatch]:
+    def _room_matches(
+        self,
+        device_mac: str,
+        vector: SignalVector,
+    ) -> tuple[dict[str, RoomMatch], str]:
+        # Prefer device-specific fingerprints. When they are missing or
+        # insufficient, use fingerprints from all calibrated devices as a
+        # shared room profile. This is deliberately transparent and remains
+        # a deterministic k-NN model rather than a black box.
+        own = self.store.list_fingerprints(device_mac)
+        source = own
+        method = "device_fingerprint"
+        if not own:
+            source = self.store.room_profile_fingerprints()
+            method = "shared_room_profile"
+
         grouped: dict[str, list[Match]] = defaultdict(list)
-        for fingerprint in self.store.list_fingerprints(device_mac):
+        contributing_devices: dict[str, set[str]] = defaultdict(set)
+        for fingerprint in source:
             match = self._fingerprint_score(vector, fingerprint["vector"])
             if math.isfinite(match.score):
                 grouped[fingerprint["room_slug"]].append(match)
-        return {
+                contributing_devices[fingerprint["room_slug"]].add(
+                    fingerprint["device_mac"]
+                )
+
+        results = {
             room_slug: self._combine_room_matches(matches)
             for room_slug, matches in grouped.items()
             if matches
         }
+
+        # A shared profile should not claim broad support when it only
+        # contains measurements from one foreign device.
+        if method == "shared_room_profile":
+            results = {
+                room_slug: match
+                for room_slug, match in results.items()
+                if len(contributing_devices[room_slug]) >= 1
+            }
+        return results, method
+
+    def _apply_ap_room_hint(
+        self,
+        matches: dict[str, RoomMatch],
+        device_mac: str,
+        now: float,
+    ) -> tuple[dict[str, RoomMatch], str | None]:
+        association = self.client_associations.get(normalize_mac(device_mac))
+        if not association or now - float(association.get("last_seen", 0)) > self.ttl:
+            return matches, None
+        hostname = association.get("hostname")
+        if not isinstance(hostname, str):
+            return matches, None
+        assignment = self.store.access_point_room_map().get(hostname.casefold())
+        if not assignment or not assignment.get("room_slug"):
+            return matches, None
+        room_slug = str(assignment["room_slug"])
+        weight = float(assignment.get("weight") or 0.08)
+        # Lower score is better. The AP location is only a weak hint and can
+        # never create a match on its own.
+        adjusted: dict[str, RoomMatch] = {}
+        for slug, match in matches.items():
+            bonus = max(0.0, min(3.0, weight * 25.0)) if slug == room_slug else 0.0
+            adjusted[slug] = RoomMatch(
+                max(0.0, match.score - bonus),
+                match.shared_aps,
+                match.coverage,
+                match.support,
+            )
+        return adjusted, room_slug
 
     def _confidence(
         self,
@@ -560,14 +620,18 @@ class Locator:
             "second_score": None,
             "shared_aps": 0,
             "coverage": 0.0,
-            "method": "fingerprint_knn",
+            "method": "none",
+            "ap_room_hint": None,
             **connection,
         }
         if offline or visible_aps < self.min_shared_aps:
             return result
-        matches = self._room_matches(device_mac, vector)
+        matches, method = self._room_matches(device_mac, vector)
         if not matches:
             return result
+        matches, ap_room_hint = self._apply_ap_room_hint(matches, device_mac, now)
+        result["method"] = method
+        result["ap_room_hint"] = ap_room_hint
         ranked = sorted(matches.items(), key=lambda item: item[1].score)
         best_slug, best = ranked[0]
         second = ranked[1][1] if len(ranked) > 1 else None

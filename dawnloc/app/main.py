@@ -129,6 +129,11 @@ class NameInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class AccessPointRoomInput(BaseModel):
+    room_slug: str | None = None
+    weight: float = 0.08
+
+
 class CalibrationInput(BaseModel):
     device_mac: str
     room_slug: str
@@ -243,6 +248,19 @@ def rename_room(room_id: str, item: NameInput) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="errors.room_not_configured")
     MQTT.publish_all_states()
     return room
+
+
+@app.get("/api/access-point-rooms")
+def access_point_rooms() -> list[dict[str, Any]]:
+    return STORE.list_access_point_rooms()
+
+
+@app.put("/api/access-point-rooms/{hostname}")
+def set_access_point_room(hostname: str, item: AccessPointRoomInput) -> dict[str, Any]:
+    try:
+        return STORE.set_access_point_room(hostname, item.room_slug, item.weight)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/fingerprints")
