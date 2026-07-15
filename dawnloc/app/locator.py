@@ -788,16 +788,30 @@ class Locator:
                 return None
             now = time.time()
             vector, counts = self._group_samples(session.samples)
+            device = self.store.get_device(session.device_mac) or {}
+            room_name = self.store.room_names().get(session.room_slug, session.room_slug)
+            sample_counts = {
+                self._feature_label(feature): count
+                for feature, count in sorted(
+                    counts.items(),
+                    key=lambda item: self._feature_label(item[0]),
+                )
+            }
             return {
                 "id": session.id,
                 "device_mac": session.device_mac,
+                "device_name": device.get("name"),
+                "device_type": device.get("device_type"),
                 "room_slug": session.room_slug,
+                "room_name": room_name,
                 "started_at": session.started_at,
                 "ends_at": session.ends_at,
                 "remaining_seconds": max(0, round(session.ends_at - now, 1)),
                 "status": session.status,
                 "sample_count": sum(counts.values()),
+                "sample_counts": sample_counts,
                 "ap_count": self._visible_ap_count(vector),
+                "vector": self._display_vector(vector),
                 "fingerprint_id": session.fingerprint_id,
                 "error": session.error,
             }

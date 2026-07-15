@@ -1,11 +1,133 @@
-<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DAWNLoc</title><link rel="stylesheet" href="assets/style.css"></head><body>
-<header><div class="brand"><img src="assets/logo.png" alt=""><div><h1>DAWNLoc</h1><p>WLAN-basierte Raumortung mit OpenWrt und DAWN</p></div></div><label>Sprache<select id="languageSelect"><option value="de">Deutsch</option><option value="en">English</option></select></label></header>
-<main><div id="status" class="status"></div><h2>Gerätestandorte</h2><div id="live" class="room-groups"></div>
-<h2>Einrichtung</h2><div class="grid">
-<section class="card"><h3>Gerät hinzufügen</h3><form id="deviceForm"><label>MAC-Adresse<input id="deviceMac" required placeholder="aa:bb:cc:dd:ee:ff"></label><label>Name<input id="deviceName" required></label><label>Typ<select id="deviceType"><option value="tracked">Zu ortendes Gerät</option><option value="reference">Stationärer Raumanker</option></select></label><label>Fester Raum<select id="referenceRoom"><option value="">–</option></select></label><label>Entity-Slug (optional)<input id="deviceSlug"></label><button>Gerät speichern</button></form><details><summary>Entdeckte Clients <span id="clientCount"></span></summary><div id="clients" class="scroll"></div></details></section>
-<section class="card"><h3>Raum kalibrieren</h3><form id="calForm"><label>Gerät<select id="calDevice" required></select></label><label>Raum<select id="calRoom" required></select></label><label>Dauer in Sekunden<input id="calDuration" type="number" min="5" max="120" value="25"></label><button>Kalibrierung starten</button></form><div id="calStatus"></div></section>
-<section class="card"><details><summary>Räume <span id="roomCount"></span></summary><form id="roomForm" class="row"><label>Name<input id="roomName" required></label><label>Raum-ID (optional)<input id="roomSlug"></label><button>Raum hinzufügen</button></form><div id="rooms"></div></details></section></div>
-<details class="section"><summary>Access Points <span id="apCount"></span></summary><section class="card"><div id="aps"></div></section></details>
-<details class="section"><summary>Fingerprints <span id="fingerprintCount"></span></summary><section class="card scroll"><div id="fingerprints"></div></section></details>
-<details class="section"><summary>Daten sichern und wiederherstellen</summary><section class="card backup"><div><a class="button" href="api/export/devices">Nur Geräte</a><a class="button" href="api/export/fingerprints">Nur Fingerprints</a><a class="button" href="api/export/all">Vollständige Sicherung</a></div><form id="importForm"><input id="importFile" type="file" accept="application/json" required><button>Importieren</button></form><div id="importStatus"></div></section></details>
-</main><script src="assets/app.js"></script></body></html>
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DAWNLoc</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <img src="assets/logo.png" alt="">
+    <div>
+      <h1>DAWNLoc</h1>
+      <p>WLAN-basierte Raumortung mit OpenWrt und DAWN</p>
+    </div>
+  </div>
+  <label>Sprache
+    <select id="languageSelect">
+      <option value="de">Deutsch</option>
+      <option value="en">English</option>
+    </select>
+  </label>
+</header>
+
+<main>
+  <div id="status" class="status"></div>
+
+  <h2>Gerätestandorte</h2>
+  <div id="live" class="room-groups"></div>
+
+  <h2>Einrichtung</h2>
+  <div class="grid">
+    <section class="card">
+      <h3>Gerät hinzufügen</h3>
+      <form id="deviceForm">
+        <label>MAC-Adresse
+          <input id="deviceMac" required placeholder="aa:bb:cc:dd:ee:ff">
+        </label>
+        <label>Name
+          <input id="deviceName" required>
+        </label>
+        <label>Typ
+          <select id="deviceType">
+            <option value="tracked">Zu ortendes Gerät</option>
+            <option value="reference">Stationärer Raumanker</option>
+          </select>
+        </label>
+        <label>Fester Raum
+          <select id="referenceRoom">
+            <option value="">–</option>
+          </select>
+        </label>
+        <label>Entity-Slug (optional)
+          <input id="deviceSlug">
+        </label>
+        <button>Gerät speichern</button>
+      </form>
+
+      <details>
+        <summary>Entdeckte Clients <span id="clientCount"></span></summary>
+        <div id="clients" class="scroll"></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h3>Raum kalibrieren</h3>
+      <form id="calForm">
+        <label>Gerät
+          <select id="calDevice" required></select>
+        </label>
+        <label>Raum
+          <select id="calRoom" required></select>
+        </label>
+        <label>Dauer in Sekunden
+          <input id="calDuration" type="number" min="5" max="120" value="25">
+        </label>
+        <button>Kalibrierung starten</button>
+      </form>
+      <div id="calStatus"></div>
+    </section>
+  </div>
+
+  <details class="section">
+    <summary>Access Points <span id="apCount"></span></summary>
+    <section class="card">
+      <div id="aps"></div>
+    </section>
+  </details>
+
+  <details class="section">
+    <summary>Fingerprints <span id="fingerprintCount"></span></summary>
+    <section class="card scroll">
+      <div id="fingerprints"></div>
+    </section>
+  </details>
+
+  <details class="section">
+    <summary>Räume <span id="roomCount"></span></summary>
+    <section class="card">
+      <form id="roomForm" class="row">
+        <label>Name
+          <input id="roomName" required>
+        </label>
+        <label>Raum-ID (optional)
+          <input id="roomSlug">
+        </label>
+        <button>Raum hinzufügen</button>
+      </form>
+      <div id="rooms"></div>
+    </section>
+  </details>
+
+  <details class="section">
+    <summary>Daten sichern und wiederherstellen</summary>
+    <section class="card backup">
+      <div>
+        <a class="button" href="api/export/devices">Nur Geräte</a>
+        <a class="button" href="api/export/fingerprints">Nur Fingerprints</a>
+        <a class="button" href="api/export/all">Vollständige Sicherung</a>
+      </div>
+      <form id="importForm">
+        <input id="importFile" type="file" accept="application/json" required>
+        <button>Importieren</button>
+      </form>
+      <div id="importStatus"></div>
+    </section>
+  </details>
+</main>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

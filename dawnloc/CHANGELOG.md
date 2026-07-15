@@ -2,6 +2,7 @@
 
 ## 0.2.0-beta.3
 
+- Hotfix: Formulare behalten ihre Auswahl; Kalibrierung zeigt AP-, Signal- und Sampledetails.
 - AP-Raumzuordnung, starke Ein-AP-Ortung und stabiler letzter Standort.
 - Stationäre Raumanker ohne Home-Assistant-Entitäten.
 - Rollenbasierter OpenWrt-Agent für Router und Access Points.
