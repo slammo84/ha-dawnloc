@@ -130,6 +130,8 @@ class Locator:
         self.client_ssids: dict[str, set[str]] = defaultdict(set)
         self.client_metadata: dict[str, dict[str, str]] = {}
         self.ap_metadata: dict[str, dict[str, Any]] = {}
+        self.client_associations: dict[str, dict[str, Any]] = {}
+        self.source_associations: dict[str, set[str]] = defaultdict(set)
         self.feature_labels: dict[str, str] = {}
         self.sessions: dict[str, CalibrationSession] = {}
         self.stable_room_slug: dict[str, str | None] = {}
@@ -146,6 +148,7 @@ class Locator:
         source_node: str | None = None,
         clients: list[dict[str, Any]] | None = None,
         access_points: list[dict[str, Any]] | None = None,
+        associations: list[dict[str, Any]] | None = None,
     ) -> None:
         now = time.time()
         with self.lock:
@@ -154,6 +157,7 @@ class Locator:
                 self.source_node = source_node
             self._ingest_client_metadata(clients or [])
             self._ingest_ap_metadata(access_points or [], source_node, now)
+            self._ingest_associations(associations or [], source_node, now)
             for observation in observations:
                 client = normalize_mac(observation.client)
                 bssid = normalize_mac(observation.bssid)
@@ -182,6 +186,76 @@ class Locator:
                         session.samples[bssid].append(observation.rssi)
             self._finalize_due(now)
             self._update_all_stable(now)
+
+    def _ingest_associations(
+        self,
+        associations: list[dict[str, Any]],
+        source_node: str | None,
+        now: float,
+    ) -> None:
+        source_key = source_node.strip().casefold() if isinstance(source_node, str) else ""
+        current_macs: set[str] = set()
+        for item in associations:
+            mac = item.get("mac")
+            bssid = item.get("bssid")
+            if not isinstance(mac, str) or not is_mac(mac):
+                continue
+            if not isinstance(bssid, str) or not is_mac(bssid):
+                continue
+            mac = normalize_mac(mac)
+            bssid = normalize_mac(bssid)
+            frequency = item.get("frequency") or item.get("freq")
+            try:
+                frequency = int(float(frequency)) if frequency is not None else None
+            except (TypeError, ValueError):
+                frequency = None
+            channel = item.get("channel")
+            try:
+                channel = int(float(channel)) if channel is not None else None
+            except (TypeError, ValueError):
+                channel = None
+            if channel is None:
+                channel = channel_from_frequency(frequency)
+            hostname = item.get("hostname") or source_node
+            metadata = self.ap_metadata.setdefault(bssid, {})
+            if isinstance(hostname, str) and hostname.strip():
+                metadata["hostname"] = hostname.strip()
+            band = normalize_band(item.get("band") or metadata.get("band"))
+            if band == "unknown" and frequency is not None:
+                band = band_from_frequency(frequency)
+            if band != "unknown":
+                metadata["band"] = band
+            if frequency is not None:
+                metadata["frequency"] = frequency
+            if channel is not None:
+                metadata["channel"] = channel
+            metadata["last_metadata"] = now
+            self.ap_last_seen[bssid] = now
+            self._remember_feature(bssid)
+            signal = item.get("signal")
+            try:
+                signal = round(float(signal), 1) if signal is not None else None
+            except (TypeError, ValueError):
+                signal = None
+            self.client_associations[mac] = {
+                "bssid": bssid,
+                "hostname": metadata.get("hostname"),
+                "frequency": frequency,
+                "channel": channel,
+                "band": band if band != "unknown" else None,
+                "signal": signal,
+                "source_node": source_key,
+                "last_seen": now,
+            }
+            self.client_last_seen[mac] = now
+            current_macs.add(mac)
+        if source_key:
+            previous_macs = self.source_associations.get(source_key, set())
+            for mac in previous_macs - current_macs:
+                association = self.client_associations.get(mac)
+                if association and association.get("source_node") == source_key:
+                    self.client_associations.pop(mac, None)
+            self.source_associations[source_key] = current_macs
 
     def _ingest_client_metadata(self, clients: list[dict[str, Any]]) -> None:
         for item in clients:
@@ -220,6 +294,9 @@ class Locator:
                 metadata["band"] = band_from_frequency(frequency)
             if frequency is not None:
                 metadata["frequency"] = frequency
+            channel = item.get("channel")
+            if channel is not None:
+                metadata["channel"] = channel
             ssid = item.get("ssid")
             if isinstance(ssid, str) and ssid:
                 ssids = set(metadata.get("ssids", []))
@@ -335,8 +412,9 @@ class Locator:
         )
         return {self._feature_label(feature): rssi for feature, rssi in ordered}
 
-    def _current_connection(self, raw_vector: SignalVector) -> dict[str, Any]:
-        if not raw_vector:
+    def _current_connection(self, device_mac: str, now: float) -> dict[str, Any]:
+        association = self.client_associations.get(normalize_mac(device_mac))
+        if not association or now - float(association.get("last_seen", 0)) > self.ttl:
             return {
                 "current_ap": None,
                 "current_bssid": None,
@@ -345,23 +423,22 @@ class Locator:
                 "current_band": None,
                 "current_ap_estimated": False,
             }
+        return {
+            "current_ap": association.get("hostname"),
+            "current_bssid": association.get("bssid"),
+            "current_channel": association.get("channel"),
+            "current_frequency": association.get("frequency"),
+            "current_band": association.get("band"),
+            "current_ap_estimated": False,
+        }
+
+    def _strongest_ap(self, raw_vector: SignalVector) -> str | None:
+        if not raw_vector:
+            return None
         bssid = max(raw_vector, key=raw_vector.get)
         metadata = self.ap_metadata.get(bssid, {})
-        frequency = metadata.get("frequency")
-        try:
-            frequency = int(float(frequency)) if frequency is not None else None
-        except (TypeError, ValueError):
-            frequency = None
         hostname = metadata.get("hostname")
-        band = normalize_band(metadata.get("band"))
-        return {
-            "current_ap": hostname if isinstance(hostname, str) and hostname else None,
-            "current_bssid": bssid,
-            "current_channel": channel_from_frequency(frequency),
-            "current_frequency": frequency,
-            "current_band": band if band != "unknown" else None,
-            "current_ap_estimated": True,
-        }
+        return hostname if isinstance(hostname, str) and hostname else None
 
     def _fingerprint_score(self, current: SignalVector, fingerprint: SignalVector) -> Match:
         reference = self._group_vector(fingerprint)
@@ -455,7 +532,7 @@ class Locator:
         room_names = self.store.room_names()
         stable_slug = self.stable_room_slug.get(device_mac)
         metadata = self.client_metadata.get(device_mac, {})
-        connection = self._current_connection(raw_vector)
+        connection = self._current_connection(device_mac, now)
         result: dict[str, Any] = {
             "device_mac": device_mac,
             "hostname": metadata.get("hostname"),
@@ -473,7 +550,7 @@ class Locator:
             "visible_aps": visible_aps,
             "visible_radios": len(vector),
             "visible_bssids": len(raw_vector),
-            "strongest_ap": connection["current_ap"],
+            "strongest_ap": self._strongest_ap(raw_vector),
             "instant_room": None,
             "instant_room_slug": None,
             "stable_room": room_names.get(stable_slug, stable_slug),
