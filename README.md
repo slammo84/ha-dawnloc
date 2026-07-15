@@ -1,4 +1,4 @@
-# DAWNLoc Beta 0.2.0-beta.3
+# DAWNLoc Beta 0.2.0-beta.3.1
 
 Experimentelle Testversion der WLAN-basierten Raumortung für Home Assistant, OpenWrt und DAWN.
 
