@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0-beta.6
+
+- Geöffnete Signalwert-Details bleiben bei automatischen Aktualisierungen geöffnet.
+- Entfernt die experimentellen Raumanker einschließlich bestehender Ankerdaten.
+- Vereinfacht Geräteformular, Fingerprint-Ansicht und Kopfbereich.
+- Verwendet `AP-KELLER` als Bezeichnung der OpenWrt-Zentrale.
+- Führt WLAN-Geräte, iBeacons und Tags zu stabilen Personenstandorten zusammen.
+- Ergänzt BLE-Hysterese sowie ausgewählte Bewegungs- und Übergangssensoren.
+- Sichert Personen und Quellenzuordnungen im vollständigen Export.
+
 ## 0.2.0-beta.5
 
 - Publiziert an Home Assistant nur noch echte Anwesenheits- und Raumwechsel.

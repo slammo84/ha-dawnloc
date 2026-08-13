@@ -15,12 +15,6 @@
       <p>WLAN-basierte Raumortung mit OpenWrt und DAWN</p>
     </div>
   </div>
-  <label>Sprache
-    <select id="languageSelect">
-      <option value="de">Deutsch</option>
-      <option value="en">English</option>
-    </select>
-  </label>
 </header>
 
 <main>
@@ -32,6 +26,17 @@
   <h2>Einrichtung</h2>
   <div class="grid">
     <section class="card">
+      <h3>Person hinzufügen</h3>
+      <form id="personForm">
+        <label>Name <input id="personName" required placeholder="Marcel"></label>
+        <label>Home-Assistant-Person
+          <input id="personEntity" placeholder="person.marcel_etienne_gose">
+        </label>
+        <button>Person speichern</button>
+      </form>
+      <div id="persons"></div>
+    </section>
+    <section class="card">
       <h3>Gerät hinzufügen</h3>
       <form id="deviceForm">
         <label>MAC-Adresse
@@ -40,19 +45,11 @@
         <label>Name
           <input id="deviceName" required>
         </label>
-        <label>Typ
-          <select id="deviceType">
-            <option value="tracked">Zu ortendes Gerät</option>
-            <option value="reference">Stationärer Raumanker</option>
-          </select>
-        </label>
-        <label>Fester Raum
-          <select id="referenceRoom">
-            <option value="">–</option>
-          </select>
-        </label>
         <label>Entity-Slug (optional)
           <input id="deviceSlug">
+        </label>
+        <label>Person
+          <select id="devicePerson"><option value="">Keine Zuordnung</option></select>
         </label>
         <button>Gerät speichern</button>
       </form>

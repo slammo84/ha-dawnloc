@@ -82,6 +82,15 @@ class Store:
             CREATE TABLE IF NOT EXISTS ble_scanners (
               source TEXT PRIMARY KEY, name TEXT NOT NULL, room_slug TEXT,
               FOREIGN KEY(room_slug) REFERENCES rooms(slug) ON DELETE SET NULL);
+            CREATE TABLE IF NOT EXISTS persons (
+              slug TEXT PRIMARY KEY, name TEXT NOT NULL, ha_person_entity TEXT,
+              created_at REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS person_devices (
+              person_slug TEXT NOT NULL, device_mac TEXT NOT NULL UNIQUE,
+              weight REAL NOT NULL DEFAULT 1.0,
+              PRIMARY KEY(person_slug, device_mac),
+              FOREIGN KEY(person_slug) REFERENCES persons(slug) ON DELETE CASCADE,
+              FOREIGN KEY(device_mac) REFERENCES devices(mac) ON DELETE CASCADE);
             """)
             cols = self._columns("devices")
             if "device_type" not in cols:
@@ -90,12 +99,15 @@ class Store:
                 )
             if "reference_room_slug" not in cols:
                 self.conn.execute("ALTER TABLE devices ADD COLUMN reference_room_slug TEXT")
+            # Room anchors were experimental. Remove them during the beta migration;
+            # their fingerprints are removed by the existing cascade.
+            self.conn.execute("DELETE FROM devices WHERE device_type='reference'")
+            self.conn.execute("UPDATE devices SET device_type='tracked', reference_room_slug=NULL")
+            if "person_slug" not in self._columns("ble_identities"):
+                self.conn.execute("ALTER TABLE ble_identities ADD COLUMN person_slug TEXT")
 
-    def list_devices(self, include_references: bool = True) -> list[dict[str, Any]]:
-        sql = "SELECT * FROM devices"
-        if not include_references:
-            sql += " WHERE device_type='tracked'"
-        sql += " ORDER BY name COLLATE NOCASE"
+    def list_devices(self) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM devices ORDER BY name COLLATE NOCASE"
         with self.lock:
             rows = self.conn.execute(sql).fetchall()
         return [dict(r) for r in rows]
@@ -117,22 +129,16 @@ class Store:
         mac: str,
         name: str,
         slug: str | None = None,
-        device_type: str = "tracked",
-        reference_room_slug: str | None = None,
     ) -> dict[str, Any]:
         mac = normalize_mac(mac)
         existing = self.get_device(mac)
         stable_slug = existing["slug"] if existing else slugify(slug or name)
-        if device_type not in {"tracked", "reference"}:
-            raise ValueError("errors.invalid_device_type")
-        if reference_room_slug and not self.get_room(reference_room_slug):
-            raise ValueError("errors.room_not_configured")
         with self.lock, self.conn:
             self.conn.execute(
                 """INSERT INTO devices(mac,name,slug,enabled,device_type,reference_room_slug,created_at)
             VALUES(?,?,?,1,?,?,?) ON CONFLICT(mac) DO UPDATE SET name=excluded.name,enabled=1,
             device_type=excluded.device_type,reference_room_slug=excluded.reference_room_slug""",
-                (mac, name.strip(), stable_slug, device_type, reference_room_slug, time.time()),
+                (mac, name.strip(), stable_slug, "tracked", None, time.time()),
             )
         return self.get_device(mac) or {}
 
@@ -153,6 +159,61 @@ class Store:
                     (row["slug"], time.time()),
                 )
             self.conn.execute("DELETE FROM devices WHERE mac=?", (mac,))
+
+    def list_persons(self) -> list[dict[str, Any]]:
+        with self.lock:
+            people = [
+                dict(row)
+                for row in self.conn.execute(
+                    "SELECT * FROM persons ORDER BY name COLLATE NOCASE"
+                ).fetchall()
+            ]
+            links = self.conn.execute(
+                """SELECT p.person_slug,p.device_mac,p.weight,d.name device_name
+                FROM person_devices p JOIN devices d ON d.mac=p.device_mac"""
+            ).fetchall()
+        by_person: dict[str, list[dict[str, Any]]] = {}
+        for row in links:
+            item = dict(row)
+            by_person.setdefault(str(item.pop("person_slug")), []).append(item)
+        for person in people:
+            person["devices"] = by_person.get(str(person["slug"]), [])
+        return people
+
+    def get_person(self, slug: str) -> dict[str, Any] | None:
+        return next((person for person in self.list_persons() if person["slug"] == slug), None)
+
+    def upsert_person(
+        self, name: str, slug: str | None = None, ha_person_entity: str | None = None
+    ) -> dict[str, Any]:
+        person_slug = slugify(slug or name)
+        with self.lock, self.conn:
+            self.conn.execute(
+                """INSERT INTO persons(slug,name,ha_person_entity,created_at) VALUES(?,?,?,?)
+                ON CONFLICT(slug) DO UPDATE SET name=excluded.name,
+                ha_person_entity=excluded.ha_person_entity""",
+                (person_slug, name.strip(), ha_person_entity or None, time.time()),
+            )
+        return self.get_person(person_slug) or {}
+
+    def delete_person(self, slug: str) -> None:
+        with self.lock, self.conn:
+            self.conn.execute("DELETE FROM persons WHERE slug=?", (slug,))
+
+    def assign_device_to_person(self, device_mac: str, person_slug: str | None) -> None:
+        device_mac = normalize_mac(device_mac)
+        with self.lock, self.conn:
+            self.conn.execute("DELETE FROM person_devices WHERE device_mac=?", (device_mac,))
+            if person_slug:
+                self.conn.execute(
+                    "INSERT INTO person_devices(person_slug,device_mac) VALUES(?,?)",
+                    (person_slug, device_mac),
+                )
+
+    def person_device_map(self) -> dict[str, str]:
+        with self.lock:
+            rows = self.conn.execute("SELECT device_mac,person_slug FROM person_devices").fetchall()
+        return {str(row["device_mac"]): str(row["person_slug"]) for row in rows}
 
     def list_cleanup_slugs(self) -> list[str]:
         with self.lock:
@@ -224,7 +285,7 @@ class Store:
         return int(cur.lastrowid)
 
     def list_fingerprints(self, device_mac: str | None = None) -> list[dict[str, Any]]:
-        sql = """SELECT f.*,d.name device_name,d.device_type,r.name room_name FROM fingerprints f
+        sql = """SELECT f.*,d.name device_name,r.name room_name FROM fingerprints f
         LEFT JOIN devices d ON d.mac=f.device_mac LEFT JOIN rooms r ON r.slug=f.room_slug"""
         args = ()
         if device_mac:
@@ -251,13 +312,13 @@ class Store:
         LEFT JOIN rooms r ON r.slug=a.room_slug ORDER BY a.hostname COLLATE NOCASE""").fetchall()
         return [dict(r) for r in rows]
 
-    def map_ble_identity(self, identity: str, name: str, device_mac: str | None) -> None:
-        normalized_mac = normalize_mac(device_mac) if device_mac else None
+    def map_ble_identity(self, identity: str, name: str, person_slug: str | None) -> None:
         with self.lock, self.conn:
             self.conn.execute(
-                """INSERT INTO ble_identities(identity,name,device_mac) VALUES(?,?,?)
-            ON CONFLICT(identity) DO UPDATE SET name=excluded.name,device_mac=excluded.device_mac""",
-                (identity.strip().casefold(), name.strip(), normalized_mac),
+                """INSERT INTO ble_identities(identity,name,device_mac,person_slug)
+                VALUES(?,?,NULL,?) ON CONFLICT(identity) DO UPDATE SET
+                name=excluded.name,device_mac=NULL,person_slug=excluded.person_slug""",
+                (identity.strip().casefold(), name.strip(), person_slug or None),
             )
 
     def map_ble_scanner(self, source: str, name: str, room_slug: str | None) -> None:
@@ -310,6 +371,7 @@ class Store:
             data["access_point_rooms"] = self.list_access_point_rooms()
             data["ble_identities"] = list(self.ble_identity_mappings().values())
             data["ble_scanners"] = list(self.ble_scanner_mappings().values())
+            data["persons"] = self.list_persons()
         return data
 
     def import_data(self, payload: dict[str, Any]) -> dict[str, int]:
@@ -320,6 +382,7 @@ class Store:
             "access_point_rooms": 0,
             "ble_identities": 0,
             "ble_scanners": 0,
+            "persons": 0,
         }
         for r in payload.get("rooms", []):
             self.upsert_room(str(r["name"]), str(r["slug"]))
@@ -329,10 +392,17 @@ class Store:
                 str(d["mac"]),
                 str(d["name"]),
                 str(d.get("slug") or ""),
-                str(d.get("device_type") or "tracked"),
-                d.get("reference_room_slug"),
             )
             counts["devices"] += 1
+        for person in payload.get("persons", []):
+            saved = self.upsert_person(
+                str(person["name"]),
+                str(person.get("slug") or ""),
+                person.get("ha_person_entity"),
+            )
+            for link in person.get("devices", []):
+                self.assign_device_to_person(str(link["device_mac"]), saved["slug"])
+            counts["persons"] += 1
         existing = {
             (
                 f["device_mac"],

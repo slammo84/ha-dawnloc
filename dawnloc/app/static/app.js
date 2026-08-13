@@ -7,6 +7,7 @@ const esc = value => String(value ?? '').replace(
 
 let clients = new Map();
 let devices = new Map();
+let persons = new Map();
 let rooms = new Map();
 let apRooms = new Map();
 let calibration = null;
@@ -59,6 +60,10 @@ function renderStatus(status) {
 }
 
 function renderLive(list) {
+  const openSignalDetails = new Set(
+    [...$('live').querySelectorAll('details[data-device-mac][open]')]
+      .map(details => details.dataset.deviceMac),
+  );
   const groups = new Map();
 
   for (const device of list) {
@@ -76,23 +81,21 @@ function renderLive(list) {
             <div class="device-head">
               <div>
                 <h4>${esc(device.name)}</h4>
-                <div class="meta">${esc(device.ip_address || 'Keine IP')} · ${esc(device.device_mac)}</div>
+                <div class="meta">${esc(device.device_mac || `${device.source_count || 0} Ortungsquellen`)}</div>
               </div>
               <div>
-                <button class="small secondary" onclick="renameDevice('${device.device_mac}')">Umbenennen</button>
-                <button class="small danger" onclick="deleteDevice('${device.device_mac}')">Löschen</button>
+                ${device.device_mac ? `<button class="small secondary" onclick="renameDevice('${device.device_mac}')">Umbenennen</button><button class="small danger" onclick="deleteDevice('${device.device_mac}')">Löschen</button>` : ''}
               </div>
             </div>
             <div class="meter"><span style="width:${Number(device.confidence || 0)}%"></span></div>
             <div class="meta">
               ${esc(device.method || 'none')} · ${Number(device.confidence || 0).toFixed(0)} % ·
-              ${esc(device.current_ap || device.strongest_ap || 'kein AP')} ·
-              ${device.visible_aps || 0} APs · ${age(device.age_seconds)}
+              ${device.device_mac ? `${esc(device.current_ap || device.strongest_ap || 'kein AP')} · ${device.visible_aps || 0} APs · ${age(device.age_seconds)}` : `${device.source_count || 0} aktive Quellen`}
             </div>
-            <details>
+            ${device.device_mac ? `<details data-device-mac="${esc(device.device_mac)}" ${openSignalDetails.has(device.device_mac) ? 'open' : ''}>
               <summary>Aktuelle Signalwerte</summary>
               <pre>${esc(JSON.stringify(device.vector, null, 2))}</pre>
-            </details>
+            </details>` : ''}
           </article>`
         ).join('')}
       </div>
@@ -128,15 +131,25 @@ function renderRooms(list) {
     list.map(room => `<option value="${esc(room.slug)}">${esc(room.name)}</option>`).join('');
 
   replaceSelectOptions('calRoom', options);
-  replaceSelectOptions('referenceRoom', options);
 }
 
 function renderDevices(list) {
   devices = new Map(list.map(device => [device.mac, device]));
   const options = list.map(device =>
-    `<option value="${device.mac}">${esc(device.name)}${device.device_type === 'reference' ? ' (Raumanker)' : ''}</option>`
+    `<option value="${device.mac}">${esc(device.name)}</option>`
   ).join('');
   replaceSelectOptions('calDevice', options);
+}
+
+function renderPersons(list) {
+  persons = new Map(list.map(person => [person.slug, person]));
+  $('persons').innerHTML = list.map(person =>
+    `<p><strong>${esc(person.name)}</strong><br><span class="muted">${esc(person.ha_person_entity || 'Keine HA-Person')} · ${person.devices.length} WLAN-Geräte</span> <button class="small danger" onclick="deletePerson('${esc(person.slug)}')">Löschen</button></p>`
+  ).join('') || '<p class="muted">Noch keine Personen angelegt.</p>';
+  const options = '<option value="">Keine Zuordnung</option>' + list.map(person =>
+    `<option value="${esc(person.slug)}">${esc(person.name)}</option>`
+  ).join('');
+  replaceSelectOptions('devicePerson', options);
 }
 
 function renderAPs(list) {
@@ -189,7 +202,6 @@ function renderFingerprints(list) {
       <thead>
         <tr>
           <th>Gerät</th>
-          <th>Typ</th>
           <th>Raum</th>
           <th>Zeitpunkt</th>
           <th>APs</th>
@@ -201,7 +213,6 @@ function renderFingerprints(list) {
         ${list.map(fingerprint =>
           `<tr>
             <td>${esc(fingerprint.device_name || fingerprint.device_mac)}</td>
-            <td>${fingerprint.device_type === 'reference' ? 'Raumanker' : 'Ortungsgerät'}</td>
             <td>${esc(fingerprint.room_name || fingerprint.room_slug)}</td>
             <td>${new Date(fingerprint.created_at * 1000).toLocaleString('de-DE')}</td>
             <td>${Object.keys(fingerprint.vector || {}).length}</td>
@@ -218,23 +229,23 @@ function renderBLE(data) {
   $('bleCount').textContent = `(${found.length})`;
   const roomOptions = selected => '<option value="">Keinem Raum zugeordnet</option>' +
     [...rooms.values()].map(room => `<option value="${esc(room.slug)}" ${room.slug === selected ? 'selected' : ''}>${esc(room.name)}</option>`).join('');
-  const deviceOptions = selected => '<option value="">Keinem Gerät zugeordnet</option>' +
-    [...devices.values()].filter(device => device.device_type === 'tracked').map(device => `<option value="${esc(device.mac)}" ${device.mac === selected ? 'selected' : ''}>${esc(device.name)}</option>`).join('');
+  const personOptions = selected => '<option value="">Keiner Person zugeordnet</option>' +
+    [...persons.values()].map(person => `<option value="${esc(person.slug)}" ${person.slug === selected ? 'selected' : ''}>${esc(person.name)}</option>`).join('');
   const scanners = (data.scanners || []).map(scanner =>
     `<div class="ap-group"><div><strong>${esc(scanner.name)}</strong><div class="radios">${esc(scanner.source)} · ${age(scanner.age_seconds)}</div></div>
       <select data-ble-scanner="${esc(scanner.source)}" data-name="${esc(scanner.name)}">${roomOptions(scanner.mapping?.room_slug || '')}</select></div>`
   ).join('');
   const identities = found.map(item =>
     `<div class="ap-group"><div><strong>${esc(item.name)}</strong><div class="radios">${esc(item.identity)} · ${item.scanners.length} Scanner · ${age(item.age_seconds)}</div></div>
-      <select data-ble-identity="${esc(item.identity)}" data-name="${esc(item.name)}">${deviceOptions(item.mapping?.device_mac || '')}</select></div>`
+      <select data-ble-identity="${esc(item.identity)}" data-name="${esc(item.name)}">${personOptions(item.mapping?.person_slug || '')}</select></div>`
   ).join('');
-  $('ble').innerHTML = `<h3>Scanner → Raum</h3>${scanners || '<p class="muted">Noch keine Scanner empfangen.</p>'}<h3>Beacon → Gerät</h3>${identities || '<p class="muted">Noch keine iBeacons empfangen.</p>'}`;
+  $('ble').innerHTML = `<h3>Scanner → Raum</h3>${scanners || '<p class="muted">Noch keine Scanner empfangen.</p>'}<h3>Ortungsquelle → Person</h3>${identities || '<p class="muted">Noch keine iBeacons empfangen.</p>'}`;
   $('ble').querySelectorAll('[data-ble-scanner]').forEach(select => select.addEventListener('change', async () => {
     await api('ble/scanner', {method:'POST', body:JSON.stringify({source:select.dataset.bleScanner,name:select.dataset.name,room_slug:select.value || null})});
     await refresh();
   }));
   $('ble').querySelectorAll('[data-ble-identity]').forEach(select => select.addEventListener('change', async () => {
-    await api('ble/identity', {method:'POST', body:JSON.stringify({identity:select.dataset.bleIdentity,name:select.dataset.name,device_mac:select.value || null})});
+    await api('ble/identity', {method:'POST', body:JSON.stringify({identity:select.dataset.bleIdentity,name:select.dataset.name,person_slug:select.value || null})});
     await refresh();
   }));
 }
@@ -304,7 +315,7 @@ async function refresh() {
   refreshActive = true;
 
   try {
-    const [status, live, discovered, configuredDevices, configuredRooms, fingerprints, assignments, bluetooth] =
+    const [status, live, discovered, configuredDevices, configuredRooms, fingerprints, assignments, bluetooth, configuredPersons] =
       await Promise.all([
         api('status'),
         api('live'),
@@ -314,12 +325,14 @@ async function refresh() {
         api('fingerprints'),
         api('access-point-rooms'),
         api('ble'),
+        api('persons'),
       ]);
 
     apRooms = new Map(assignments.map(item => [item.hostname.toLowerCase(), item]));
     renderStatus(status);
     renderRooms(configuredRooms);
     renderDevices(configuredDevices);
+    renderPersons(configuredPersons);
     renderLive(live);
     renderClients(discovered.clients);
     renderAPs(discovered.access_points);
@@ -366,6 +379,26 @@ async function deleteDevice(mac) {
   }
 }
 
+async function deletePerson(slug) {
+  if (confirm('Person und ihre Zuordnungen wirklich löschen?')) {
+    await api(`persons/${encodeURIComponent(slug)}`, {method: 'DELETE'});
+    await refresh();
+  }
+}
+
+$('personForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  await api('persons', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: $('personName').value,
+      ha_person_entity: $('personEntity').value || null,
+    }),
+  });
+  event.target.reset();
+  await refresh();
+});
+
 async function renameRoom(slug) {
   const room = rooms.get(slug);
   const name = prompt('Neuer Raumname', room?.name || '');
@@ -400,15 +433,10 @@ $('deviceForm').addEventListener('submit', async event => {
       mac: $('deviceMac').value,
       name: $('deviceName').value,
       slug: $('deviceSlug').value || null,
-      device_type: $('deviceType').value,
-      reference_room_slug:
-        $('deviceType').value === 'reference'
-          ? $('referenceRoom').value || null
-          : null,
+      person_slug: $('devicePerson').value || null,
     }),
   });
   event.target.reset();
-  syncReferenceRoomState();
   await refresh();
 });
 
@@ -475,11 +503,5 @@ $('importForm').addEventListener('submit', async event => {
   if (response.ok) await refresh();
 });
 
-function syncReferenceRoomState() {
-  $('referenceRoom').disabled = $('deviceType').value !== 'reference';
-}
-
-$('deviceType').addEventListener('change', syncReferenceRoomState);
-syncReferenceRoomState();
 void refresh();
 setInterval(() => void refresh(), 5000);

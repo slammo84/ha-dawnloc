@@ -131,9 +131,11 @@ def parse_hearing_map(
             )
             observation_key = (client, bssid)
             previous = observations.get(observation_key)
-            prefer_new = previous is None or (
-                previous.source == "rcpi" and source != "rcpi"
-            ) or rssi > previous.rssi
+            prefer_new = (
+                previous is None
+                or (previous.source == "rcpi" and source != "rcpi")
+                or rssi > previous.rssi
+            )
             if prefer_new:
                 observations[observation_key] = observation
 

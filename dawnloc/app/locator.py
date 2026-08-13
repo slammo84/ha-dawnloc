@@ -143,6 +143,10 @@ class Locator:
         )
         self.ble_metadata: dict[str, dict[str, Any]] = {}
         self.ble_scanners: dict[str, dict[str, Any]] = {}
+        self.context_events: dict[str, tuple[str, float]] = {}
+        self.person_stable_room: dict[str, str | None] = {}
+        self.person_candidate: dict[str, tuple[str, float]] = {}
+        self.ble_selected_room: dict[str, str] = {}
         self.sessions: dict[str, CalibrationSession] = {}
         self.stable_room_slug: dict[str, str | None] = {}
         self.candidate_room_slug: dict[str, str | None] = {}
@@ -203,6 +207,14 @@ class Locator:
                     "name": scanner_name,
                     "last_seen": now,
                 }
+
+    def ingest_context(self, payload: dict[str, Any]) -> None:
+        entity_id = payload.get("entity_id")
+        state = payload.get("state")
+        if not isinstance(entity_id, str) or not isinstance(state, str):
+            return
+        with self.lock:
+            self.context_events[entity_id] = (state, time.time())
 
     def discovered_ble(self) -> dict[str, Any]:
         now = time.time()
@@ -639,11 +651,11 @@ class Locator:
         )
         return max(0.0, min(confidence, 100.0)), gap
 
-    def _ble_evidence(self, device_mac: str, now: float) -> dict[str, Any]:
+    def _ble_evidence(self, target: str, now: float, *, person: bool = False) -> dict[str, Any]:
         identities = [
             identity
             for identity, mapping in self.store.ble_identity_mappings().items()
-            if mapping.get("device_mac") == device_mac
+            if mapping.get("person_slug" if person else "device_mac") == target
         ]
         scanner_mappings = self.store.ble_scanner_mappings()
         room_values: dict[str, list[float]] = defaultdict(list)
@@ -668,7 +680,20 @@ class Locator:
             reverse=True,
         )
         best_slug, best_rssi, scanner_count = ranked[0]
-        gap = best_rssi - ranked[1][1] if len(ranked) > 1 else 10.0
+        selection_key = f"{'person' if person else 'device'}:{target}"
+        incumbent_slug = self.ble_selected_room.get(selection_key)
+        ranked_by_room = {room: rssi for room, rssi, _count in ranked}
+        if incumbent_slug in ranked_by_room and incumbent_slug != best_slug:
+            advantage = best_rssi - ranked_by_room[incumbent_slug]
+            if advantage < 6:
+                best_slug = incumbent_slug
+                best_rssi = ranked_by_room[incumbent_slug]
+            else:
+                self.ble_selected_room[selection_key] = best_slug
+        else:
+            self.ble_selected_room[selection_key] = best_slug
+        competitors = [rssi for room, rssi, _count in ranked if room != best_slug]
+        gap = best_rssi - max(competitors) if competitors else 10.0
         strength = max(0.0, min(1.0, (best_rssi + 85.0) / 40.0))
         separation = max(0.0, min(1.0, gap / 15.0))
         confidence = 100.0 * (
@@ -840,6 +865,84 @@ class Locator:
                 )
         return result
 
+    def classify_person(self, person_slug: str, now: float | None = None) -> dict[str, Any]:
+        now = now or time.time()
+        person = self.store.get_person(person_slug)
+        if person is None:
+            raise ValueError("errors.person_not_found")
+        evidence: list[tuple[str, float, str]] = []
+        online = False
+        for link in person.get("devices", []):
+            state = self.classify(str(link["device_mac"]), now)
+            if not state["offline"]:
+                online = True
+            room_slug = state.get("instant_room_slug") or state.get("stable_room_slug")
+            if room_slug:
+                evidence.append((str(room_slug), float(state.get("confidence") or 55), "wifi"))
+        ble = self._ble_evidence(person_slug, now, person=True)
+        if ble.get("active"):
+            online = True
+        if ble.get("room_slug"):
+            evidence.append((str(ble["room_slug"]), float(ble["confidence"]), "ble"))
+
+        def context_active(entity_id: str, max_age: float = 20.0) -> bool:
+            state, timestamp = self.context_events.get(entity_id, ("off", 0.0))
+            return state == "on" and now - timestamp <= max_age
+
+        if context_active("binary_sensor.bewegungsmelder_kuche_occupancy"):
+            evidence.append(("kuche", 18.0, "motion"))
+        if context_active("binary_sensor.sensor_vorne_presence") and context_active(
+            "binary_sensor.kontakt_haustur_contact", 45.0
+        ):
+            evidence.append(("parkplatz", 15.0, "transition"))
+        totals: dict[str, float] = defaultdict(float)
+        methods: dict[str, set[str]] = defaultdict(set)
+        for room_slug, confidence, method in evidence:
+            totals[room_slug] += confidence
+            methods[room_slug].add(method)
+        candidate = max(totals, key=totals.get) if totals else None
+        if candidate and len(methods[candidate]) > 1:
+            totals[candidate] += 15
+        stable = self.person_stable_room.get(person_slug)
+        if candidate == stable:
+            self.person_candidate.pop(person_slug, None)
+        elif candidate:
+            pending = self.person_candidate.get(person_slug)
+            if pending is None or pending[0] != candidate:
+                pending = (candidate, now)
+                self.person_candidate[person_slug] = pending
+            transition_active = context_active(
+                "binary_sensor.sensor_treppe_flur_presence", 15.0
+            ) or context_active("binary_sensor.bewegungsmelder_keller_occupancy", 15.0)
+            required_seconds = (
+                min(self.stable_seconds, 8.0) if transition_active else self.stable_seconds
+            )
+            if now - pending[1] >= required_seconds:
+                stable = candidate
+                self.person_stable_room[person_slug] = candidate
+                self.person_candidate.pop(person_slug, None)
+        elif not online:
+            stable = None
+            self.person_stable_room.pop(person_slug, None)
+            self.person_candidate.pop(person_slug, None)
+        room_names = self.store.room_names()
+        return {
+            "slug": person_slug,
+            "name": person["name"],
+            "ha_person_entity": person.get("ha_person_entity"),
+            "offline": not online,
+            "stable_room_slug": stable,
+            "stable_room": room_names.get(stable, stable),
+            "instant_room_slug": candidate,
+            "instant_room": room_names.get(candidate, candidate),
+            "confidence": round(min(100.0, totals.get(candidate, 0.0)), 1) if candidate else 0.0,
+            "method": "+".join(sorted(methods.get(candidate, set()))) or "none",
+            "source_count": len(evidence),
+        }
+
+    def list_person_states(self) -> list[dict[str, Any]]:
+        return [self.classify_person(person["slug"]) for person in self.store.list_persons()]
+
     def _reset_candidate(self, device_mac: str) -> None:
         self.candidate_room_slug.pop(device_mac, None)
         self.candidate_since.pop(device_mac, None)
@@ -895,7 +998,7 @@ class Locator:
         now = time.time()
         with self.lock:
             self._update_all_stable(now)
-            for device in self.store.list_devices(include_references=False):
+            for device in self.store.list_devices():
                 state = self.classify(device["mac"], now)
                 state["name"] = device["name"]
                 state["slug"] = device["slug"]
@@ -1033,7 +1136,6 @@ class Locator:
                 "id": session.id,
                 "device_mac": session.device_mac,
                 "device_name": device.get("name"),
-                "device_type": device.get("device_type"),
                 "room_slug": session.room_slug,
                 "room_name": room_name,
                 "started_at": session.started_at,

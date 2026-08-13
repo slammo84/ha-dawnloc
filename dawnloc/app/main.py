@@ -28,6 +28,7 @@ from .store import Store
 DEFAULT_OPTIONS = {
     "raw_topic": "dawnloc/raw/hearing_map",
     "ble_topic": "dawnloc/raw/ble",
+    "context_topic": "dawnloc/raw/context",
     "sample_ttl_seconds": 20,
     "offline_after_seconds": 300,
     "stable_seconds": 60,
@@ -79,6 +80,7 @@ MQTT = MQTTWorker(
     password=os.environ.get("MQTT_PASSWORD"),
     raw_topic=str(SETTINGS.values["raw_topic"]),
     ble_topic=str(SETTINGS.values["ble_topic"]),
+    context_topic=str(SETTINGS.values["context_topic"]),
 )
 STATIC_DIR = Path(__file__).parent / "static"
 INDEX_HTML = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
@@ -100,8 +102,13 @@ class DeviceInput(BaseModel):
     mac: str
     name: str = Field(min_length=1, max_length=80)
     slug: str | None = None
-    device_type: str = "tracked"
-    reference_room_slug: str | None = None
+    person_slug: str | None = None
+
+
+class PersonInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    slug: str | None = None
+    ha_person_entity: str | None = None
 
 
 class RoomInput(BaseModel):
@@ -126,7 +133,7 @@ class CalibrationInput(BaseModel):
 class BleIdentityInput(BaseModel):
     identity: str = Field(min_length=1, max_length=160)
     name: str = Field(min_length=1, max_length=100)
-    device_mac: str | None = None
+    person_slug: str | None = None
 
 
 class BleScannerInput(BaseModel):
@@ -162,7 +169,8 @@ def status():
 
 @app.get("/api/live")
 def live():
-    return LOCATOR.list_states()
+    people = LOCATOR.list_person_states()
+    return people if people else LOCATOR.list_states()
 
 
 @app.get("/api/discovered")
@@ -189,9 +197,9 @@ def ble():
 
 @app.post("/api/ble/identity")
 def map_ble_identity(item: BleIdentityInput):
-    if item.device_mac and not STORE.get_device(item.device_mac):
-        raise HTTPException(400, "errors.device_not_configured")
-    STORE.map_ble_identity(item.identity, item.name, item.device_mac)
+    if item.person_slug and not STORE.get_person(item.person_slug):
+        raise HTTPException(400, "errors.person_not_found")
+    STORE.map_ble_identity(item.identity, item.name, item.person_slug)
     return {"ok": True}
 
 
@@ -205,7 +213,29 @@ def map_ble_scanner(item: BleScannerInput):
 
 @app.get("/api/devices")
 def devices():
-    return STORE.list_devices()
+    mappings = STORE.person_device_map()
+    return [
+        dict(device, person_slug=mappings.get(device["mac"])) for device in STORE.list_devices()
+    ]
+
+
+@app.get("/api/persons")
+def persons():
+    return STORE.list_persons()
+
+
+@app.post("/api/persons")
+def add_person(item: PersonInput):
+    person = STORE.upsert_person(item.name, item.slug, item.ha_person_entity)
+    MQTT.sync_discovery()
+    return person
+
+
+@app.delete("/api/persons/{slug}")
+def delete_person(slug: str):
+    STORE.delete_person(slug)
+    MQTT.sync_discovery()
+    return {"ok": True}
 
 
 @app.post("/api/devices")
@@ -213,11 +243,10 @@ def add_device(item: DeviceInput):
     if not is_mac(item.mac):
         raise HTTPException(400, "errors.invalid_mac")
     try:
-        d = STORE.upsert_device(
-            item.mac, item.name, item.slug, item.device_type, item.reference_room_slug
-        )
+        d = STORE.upsert_device(item.mac, item.name, item.slug)
     except (sqlite3.IntegrityError, ValueError) as e:
         raise HTTPException(409, str(e)) from e
+    STORE.assign_device_to_person(d["mac"], item.person_slug)
     MQTT.sync_discovery()
     MQTT.publish_device_state(d)
     return d

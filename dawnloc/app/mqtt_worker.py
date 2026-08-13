@@ -42,11 +42,13 @@ class MQTTWorker:
         password: str | None,
         raw_topic: str,
         ble_topic: str = "dawnloc/raw/ble",
+        context_topic: str = "dawnloc/raw/context",
     ) -> None:
         self.store = store
         self.locator = locator
         self.raw_topic = raw_topic
         self.ble_topic = ble_topic
+        self.context_topic = context_topic
         self.host = host
         self.port = port
         self.connected = False
@@ -100,6 +102,7 @@ class MQTTWorker:
         client.publish(f"{BASE_TOPIC}/status", "online", retain=True)
         client.subscribe(self.raw_topic)
         client.subscribe(self.ble_topic)
+        client.subscribe(self.context_topic)
         client.subscribe("homeassistant/status")
         self.sync_discovery()
         self.publish_all_states()
@@ -135,6 +138,14 @@ class MQTTWorker:
                 LOGGER.warning("Discarding invalid BLE JSON received on %s", message.topic)
                 return
             self.locator.ingest_ble(payload)
+            return
+
+        if message.topic == self.context_topic:
+            try:
+                payload = json.loads(message.payload.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return
+            self.locator.ingest_context(payload)
             return
 
         if message.topic != self.raw_topic:
@@ -227,14 +238,19 @@ class MQTTWorker:
             return
 
         self._process_cleanup()
-        devices = self.store.list_devices(include_references=False)
-        current_slugs = {device["slug"] for device in devices}
+        people = self.store.list_persons()
+        targets = people or self.store.list_devices()
+        current_slugs = {target["slug"] for target in targets}
+        if people:
+            for device in self.store.list_devices():
+                if device["slug"] not in current_slugs:
+                    self._clear_discovery(device["slug"])
         for stale_slug in self.known_discovery_slugs - current_slugs:
             self._clear_discovery(stale_slug)
 
         self.known_discovery_slugs = current_slugs
-        for device in devices:
-            self.publish_discovery(device)
+        for target in targets:
+            self.publish_discovery(target)
 
     def remove_device(self, device: dict[str, Any]) -> None:
         slug = device["slug"]
@@ -249,7 +265,17 @@ class MQTTWorker:
         presence_topic = f"{BASE_TOPIC}/device/{slug}/presence"
         room_topic = f"{BASE_TOPIC}/device/{slug}/room"
         availability_topic = f"{BASE_TOPIC}/status"
-        registry = self._device_registry(device)
+        registry = (
+            self._device_registry(device)
+            if device.get("mac")
+            else {
+                "identifiers": [f"dawnloc_{device['slug']}"],
+                "name": device["name"],
+                "manufacturer": "DAWNLoc",
+                "model": "Person location fusion",
+                "sw_version": __version__,
+            }
+        )
         origin = {
             "name": "DAWNLoc",
             "sw_version": __version__,
@@ -324,17 +350,30 @@ class MQTTWorker:
         self._publish_if_changed(device["slug"], "presence", "home" if present else "not_home")
         self._publish_if_changed(device["slug"], "room", room)
 
+    def _publish_person_state(self, person: dict[str, Any]) -> None:
+        state = self.locator.classify_person(person["slug"])
+        present = not state["offline"]
+        room = state.get("stable_room") if present else None
+        self._publish_if_changed(person["slug"], "presence", "home" if present else "not_home")
+        self._publish_if_changed(person["slug"], "room", room or "Nicht geortet")
+
     def publish_device_state(self, device: dict[str, Any]) -> None:
-        if device.get("device_type") == "reference":
-            return
         if not self.connected:
             return
         self.locator.tick()
-        self._publish_device_state(device)
+        if self.store.list_persons():
+            self.publish_all_states()
+        else:
+            self._publish_device_state(device)
 
     def publish_all_states(self) -> None:
         if not self.connected:
             return
         self.locator.tick()
-        for device in self.store.list_devices(include_references=False):
-            self._publish_device_state(device)
+        people = self.store.list_persons()
+        if people:
+            for person in people:
+                self._publish_person_state(person)
+        else:
+            for device in self.store.list_devices():
+                self._publish_device_state(device)

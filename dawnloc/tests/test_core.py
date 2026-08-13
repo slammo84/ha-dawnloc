@@ -62,13 +62,6 @@ def test_last_room_is_retained_while_device_is_online(store):
     assert locator.classify(CLIENT)["stable_room_slug"] == "kitchen"
 
 
-def test_reference_devices_are_not_returned_as_live_trackers(store):
-    store.upsert_room("Kitchen", "kitchen")
-    store.upsert_device(CLIENT, "Alexa", "alexa", "reference", "kitchen")
-    locator = Locator(store)
-    assert locator.list_states() == []
-
-
 def test_fingerprint_export_contains_dependencies(store):
     store.upsert_room("Kitchen", "kitchen")
     store.upsert_device(CLIENT, "Phone", "phone")
@@ -79,6 +72,26 @@ def test_fingerprint_export_contains_dependencies(store):
     assert len(data["fingerprints"]) == 1
 
 
+def test_legacy_room_anchors_are_removed_on_startup(tmp_path):
+    path = tmp_path / "dawnloc.db"
+    first = Store(str(path))
+    first.upsert_room("Kitchen", "kitchen")
+    with first.lock, first.conn:
+        first.conn.execute(
+            """INSERT INTO devices
+            (mac,name,slug,enabled,device_type,reference_room_slug,created_at)
+            VALUES(?,?,?,1,'reference','kitchen',?)""",
+            (CLIENT, "Old anchor", "old_anchor", time.time()),
+        )
+    first.close()
+
+    migrated = Store(str(path))
+    try:
+        assert migrated.get_device(CLIENT) is None
+    finally:
+        migrated.close()
+
+
 def test_ap_assignment_is_per_hostname(store):
     store.upsert_room("Office", "office")
     assignment = store.set_access_point_room("AP-OFFICE", "office")
@@ -86,10 +99,11 @@ def test_ap_assignment_is_per_hostname(store):
     assert store.access_point_room_map()["ap-office"]["room_slug"] == "office"
 
 
-def test_ble_samples_stay_in_memory_and_locate_mapped_device(store):
+def test_ble_samples_stay_in_memory_and_locate_mapped_person(store):
     store.upsert_device(CLIENT, "Phone", "phone")
     store.upsert_room("Kitchen", "kitchen")
-    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", CLIENT)
+    store.upsert_person("Marcel", "marcel", "person.marcel_etienne_gose")
+    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", "marcel")
     store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
     locator = Locator(store, stable_seconds=0)
     locator.ingest_ble(
@@ -99,10 +113,10 @@ def test_ble_samples_stay_in_memory_and_locate_mapped_device(store):
             "observations": [{"scanner_source": "scanner-kitchen", "rssi": -50}],
         }
     )
-    state = locator.classify(CLIENT)
+    state = locator.classify_person("marcel")
     assert state["offline"] is False
     assert state["instant_room_slug"] == "kitchen"
-    assert state["method"] == "ble_proximity"
+    assert state["method"] == "ble"
     tables = {
         row[0] for row in store.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
@@ -112,8 +126,29 @@ def test_ble_samples_stay_in_memory_and_locate_mapped_device(store):
 def test_ble_mappings_are_in_full_export(store):
     store.upsert_device(CLIENT, "Phone", "phone")
     store.upsert_room("Kitchen", "kitchen")
-    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", CLIENT)
+    store.upsert_person("Marcel", "marcel")
+    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", "marcel")
     store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
     data = store.export_data("all")
-    assert data["ble_identities"][0]["device_mac"] == CLIENT
+    assert data["ble_identities"][0]["person_slug"] == "marcel"
     assert data["ble_scanners"][0]["room_slug"] == "kitchen"
+    assert data["persons"][0]["ha_person_entity"] is None
+
+
+def test_person_combines_wifi_and_ble_sources(store):
+    store.upsert_device(CLIENT, "Phone", "phone")
+    store.upsert_room("Kitchen", "kitchen")
+    store.upsert_person("Marcel", "marcel")
+    store.assign_device_to_person(CLIENT, "marcel")
+    store.map_ble_identity("ibeacon:test:1:1", "Watch", "marcel")
+    store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
+    locator = Locator(store, stable_seconds=0)
+    locator.ingest_ble(
+        {
+            "identity": "ibeacon:test:1:1",
+            "observations": [{"scanner_source": "scanner-kitchen", "rssi": -45}],
+        }
+    )
+    state = locator.classify_person("marcel")
+    assert state["stable_room_slug"] == "kitchen"
+    assert state["offline"] is False

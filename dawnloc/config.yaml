@@ -1,7 +1,7 @@
 name: DAWNLoc Beta
-version: 0.2.0-beta.5
+version: 0.2.0-beta.6
 slug: dawnloc
-description: 'Beta: AP-basierte Raumortung, Raumanker und Datensicherung'
+description: 'Beta: WLAN-/BLE-Raumortung und Datensicherung'
 url: https://github.com/slammo84/ha-dawnloc
 arch:
   - amd64
@@ -21,6 +21,7 @@ watchdog: http://[HOST]:[PORT:8099]/health
 options:
   raw_topic: dawnloc/raw/hearing_map
   ble_topic: dawnloc/raw/ble
+  context_topic: dawnloc/raw/context
   sample_ttl_seconds: 20
   offline_after_seconds: 300
   stable_seconds: 60
@@ -33,6 +34,7 @@ options:
 schema:
   raw_topic: str
   ble_topic: str
+  context_topic: str
   sample_ttl_seconds: int(5,120)
   offline_after_seconds: int(15,600)
   stable_seconds: int(0,300)

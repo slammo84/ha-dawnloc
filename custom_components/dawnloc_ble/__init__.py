@@ -9,12 +9,21 @@ from homeassistant.components import bluetooth, mqtt
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import CONF_TOPIC, DEFAULT_TOPIC
 
 PUBLISH_INTERVAL = 10.0
 RSSI_CHANGE_THRESHOLD = 4
 MAX_IDENTITIES = 200
+CONTEXT_TOPIC = "dawnloc/raw/context"
+CONTEXT_ENTITIES = (
+    "binary_sensor.bewegungsmelder_keller_occupancy",
+    "binary_sensor.sensor_treppe_flur_presence",
+    "binary_sensor.bewegungsmelder_kuche_occupancy",
+    "binary_sensor.kontakt_haustur_contact",
+    "binary_sensor.sensor_vorne_presence",
+)
 
 
 def _ibeacon_identity(manufacturer_data: dict[int, bytes]) -> str | None:
@@ -124,6 +133,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(
         async_track_time_interval(hass, refresh, timedelta(seconds=PUBLISH_INTERVAL))
     )
+
+    @callback
+    def context_changed(event: Any) -> None:
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state not in {"on", "off"}:
+            return
+        payload = {
+            "entity_id": new_state.entity_id,
+            "state": new_state.state,
+            "generated_at": time.time(),
+        }
+        hass.create_task(
+            mqtt.async_publish(
+                hass, CONTEXT_TOPIC, json.dumps(payload, separators=(",", ":")), 0, False
+            )
+        )
+
+    entry.async_on_unload(async_track_state_change_event(hass, CONTEXT_ENTITIES, context_changed))
     return True
 
 

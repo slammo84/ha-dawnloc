@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0-beta.6
+
+- Behält den Zustand geöffneter Signalwert-Details beim Live-Refresh bei.
+- Entfernt Raumanker aus Datenmodell, API, Ortungslogik und Oberfläche.
+- Bereinigt nicht funktionale oder redundante Bedienelemente.
+- Aktualisiert die zentrale OpenWrt-Bezeichnung auf `AP-KELLER`.
+- Ergänzt Personen mit mehreren WLAN-/BLE-Ortungsquellen.
+- Nutzt konservative BLE-Hysterese und fünf ausgewählte HA-Kontextsensoren.
+- Migriert MQTT Discovery von Geräte- auf Personen-Tracker.
+
 ## 0.2.0-beta.5
 
 - Recorder-schonende MQTT-Entitäten und zustandsbasierte Publikation.
