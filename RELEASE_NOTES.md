@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0-beta.5
+
+- Publiziert an Home Assistant nur noch echte Anwesenheits- und Raumwechsel.
+- Entfernt hochfrequente Diagnose-Entitäten aus MQTT Discovery.
+- Ergänzt lokale iBeacon-Ortung über Home-Assistant-Bluetooth-Proxies.
+- Hält BLE-Messwerte ausschließlich begrenzt im Arbeitsspeicher.
+
 ## 0.2.0-beta.4
 
 - AP-Raumzuordnung, starke Ein-AP-Ortung und stabiler letzter Standort.

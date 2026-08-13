@@ -28,6 +28,9 @@ MIN_ACCEPTED_CONFIDENCE = 55.0
 MIN_ROOM_GAP = 1.5
 NEIGHBOURS_PER_ROOM = 3
 MIN_CALIBRATION_SAMPLES = 2
+BLE_RETENTION_SECONDS = 300
+MAX_BLE_IDENTITIES = 200
+MAX_BLE_SCANNERS = 32
 
 
 def band_from_frequency(value: Any) -> str:
@@ -135,6 +138,11 @@ class Locator:
         self.client_associations: dict[str, dict[str, Any]] = {}
         self.source_associations: dict[str, set[str]] = defaultdict(set)
         self.feature_labels: dict[str, str] = {}
+        self.ble_history: dict[str, dict[str, deque[tuple[float, float]]]] = defaultdict(
+            lambda: defaultdict(lambda: deque(maxlen=self.sample_window * 4))
+        )
+        self.ble_metadata: dict[str, dict[str, Any]] = {}
+        self.ble_scanners: dict[str, dict[str, Any]] = {}
         self.sessions: dict[str, CalibrationSession] = {}
         self.stable_room_slug: dict[str, str | None] = {}
         self.candidate_room_slug: dict[str, str | None] = {}
@@ -142,6 +150,104 @@ class Locator:
         self.last_room_fix: dict[str, float] = {}
         self.last_raw_message: float | None = None
         self.source_node: str | None = None
+
+    def ingest_ble(self, payload: dict[str, Any]) -> None:
+        identity = payload.get("identity")
+        observations = payload.get("observations")
+        if (
+            not isinstance(identity, str)
+            or not identity.strip()
+            or not isinstance(observations, list)
+        ):
+            return
+        now = time.time()
+        valid: list[tuple[str, str, float]] = []
+        for item in observations:
+            if not isinstance(item, dict):
+                continue
+            source = item.get("scanner_source")
+            try:
+                rssi = float(item.get("rssi"))
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(source, str) or not source.strip() or not -127 <= rssi <= 20:
+                continue
+            valid.append((source.strip().casefold(), str(item.get("scanner_name") or source), rssi))
+        if not valid:
+            return
+        with self.lock:
+            if (
+                identity.casefold() not in self.ble_metadata
+                and len(self.ble_metadata) >= MAX_BLE_IDENTITIES
+            ):
+                oldest = min(
+                    self.ble_metadata,
+                    key=lambda key: float(self.ble_metadata[key].get("last_seen", 0)),
+                )
+                self.ble_metadata.pop(oldest, None)
+                self.ble_history.pop(oldest, None)
+            identity = identity.strip().casefold()
+            self.ble_metadata[identity] = {
+                "identity": identity,
+                "identity_type": str(payload.get("identity_type") or "unknown"),
+                "address": str(payload.get("address") or ""),
+                "name": str(payload.get("name") or identity),
+                "last_seen": now,
+            }
+            for source, scanner_name, rssi in valid:
+                if source not in self.ble_scanners and len(self.ble_scanners) >= MAX_BLE_SCANNERS:
+                    continue
+                self.ble_history[identity][source].append((now, rssi))
+                self.ble_scanners[source] = {
+                    "source": source,
+                    "name": scanner_name,
+                    "last_seen": now,
+                }
+
+    def discovered_ble(self) -> dict[str, Any]:
+        now = time.time()
+        with self.lock:
+            for identity in [
+                key
+                for key, value in self.ble_metadata.items()
+                if now - float(value.get("last_seen", 0)) > BLE_RETENTION_SECONDS
+            ]:
+                self.ble_metadata.pop(identity, None)
+                self.ble_history.pop(identity, None)
+            for source in [
+                key
+                for key, value in self.ble_scanners.items()
+                if now - float(value.get("last_seen", 0)) > BLE_RETENTION_SECONDS
+            ]:
+                self.ble_scanners.pop(source, None)
+            devices = []
+            for identity, metadata in sorted(
+                self.ble_metadata.items(),
+                key=lambda item: item[1].get("last_seen", 0),
+                reverse=True,
+            ):
+                scanners = []
+                for source, samples in self.ble_history.get(identity, {}).items():
+                    values = [rssi for timestamp, rssi in samples if now - timestamp <= self.ttl]
+                    if values:
+                        scanners.append(
+                            {
+                                "source": source,
+                                "name": self.ble_scanners.get(source, {}).get("name", source),
+                                "rssi": round(float(statistics.median(values)), 1),
+                                "sample_count": len(values),
+                            }
+                        )
+                item = dict(metadata)
+                item["age_seconds"] = round(now - float(metadata["last_seen"]), 1)
+                item["scanners"] = sorted(scanners, key=lambda value: value["rssi"], reverse=True)
+                devices.append(item)
+            scanners = []
+            for value in self.ble_scanners.values():
+                item = dict(value)
+                item["age_seconds"] = round(now - float(value["last_seen"]), 1)
+                scanners.append(item)
+        return {"devices": devices, "scanners": scanners}
 
     def ingest(
         self,
@@ -492,7 +598,9 @@ class Locator:
         shared_aps = max(match.shared_aps for match in selected)
         return RoomMatch(score, shared_aps, coverage, len(selected))
 
-    def _room_matches(self, device_mac: str, vector: SignalVector) -> tuple[dict[str, RoomMatch], str]:
+    def _room_matches(
+        self, device_mac: str, vector: SignalVector
+    ) -> tuple[dict[str, RoomMatch], str]:
         fingerprints = self.store.list_fingerprints(device_mac)
         method = "device_fingerprint"
         if not fingerprints:
@@ -501,8 +609,16 @@ class Locator:
         grouped: dict[str, list[Match]] = defaultdict(list)
         for fingerprint in fingerprints:
             match = self._fingerprint_score(vector, fingerprint["vector"])
-            if math.isfinite(match.score): grouped[fingerprint["room_slug"]].append(match)
-        return ({room:self._combine_room_matches(matches) for room,matches in grouped.items() if matches}, method)
+            if math.isfinite(match.score):
+                grouped[fingerprint["room_slug"]].append(match)
+        return (
+            {
+                room: self._combine_room_matches(matches)
+                for room, matches in grouped.items()
+                if matches
+            },
+            method,
+        )
 
     def _confidence(
         self,
@@ -523,6 +639,52 @@ class Locator:
         )
         return max(0.0, min(confidence, 100.0)), gap
 
+    def _ble_evidence(self, device_mac: str, now: float) -> dict[str, Any]:
+        identities = [
+            identity
+            for identity, mapping in self.store.ble_identity_mappings().items()
+            if mapping.get("device_mac") == device_mac
+        ]
+        scanner_mappings = self.store.ble_scanner_mappings()
+        room_values: dict[str, list[float]] = defaultdict(list)
+        for identity in identities:
+            for source, samples in self.ble_history.get(identity, {}).items():
+                room_slug = scanner_mappings.get(source, {}).get("room_slug")
+                if not room_slug:
+                    continue
+                values = [rssi for timestamp, rssi in samples if now - timestamp <= self.ttl]
+                if values:
+                    room_values[str(room_slug)].append(float(statistics.median(values)))
+        active = any(
+            any(now - timestamp <= self.ttl for timestamp, _rssi in samples)
+            for identity in identities
+            for samples in self.ble_history.get(identity, {}).values()
+        )
+        if not room_values:
+            return {"room_slug": None, "confidence": 0.0, "scanner_count": 0, "active": active}
+        ranked = sorted(
+            ((room, max(values), len(values)) for room, values in room_values.items()),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        best_slug, best_rssi, scanner_count = ranked[0]
+        gap = best_rssi - ranked[1][1] if len(ranked) > 1 else 10.0
+        strength = max(0.0, min(1.0, (best_rssi + 85.0) / 40.0))
+        separation = max(0.0, min(1.0, gap / 15.0))
+        confidence = 100.0 * (
+            0.55 * strength + 0.35 * separation + 0.10 * min(1.0, scanner_count / 2)
+        )
+        accepted = best_rssi >= -82 and gap >= 6 and confidence >= 75
+        return {
+            "room_slug": best_slug if accepted else None,
+            "candidate_slug": best_slug,
+            "confidence": round(confidence, 1),
+            "scanner_count": scanner_count,
+            "rssi": round(best_rssi, 1),
+            "gap": round(gap, 1),
+            "active": active,
+        }
+
     def classify(self, device_mac: str, now: float | None = None) -> dict[str, Any]:
         now = now or time.time()
         device_mac = normalize_mac(device_mac)
@@ -532,6 +694,8 @@ class Locator:
         last_seen = self.client_last_seen.get(device_mac)
         offline = last_seen is None or now - last_seen > self.offline_after
         room_names = self.store.room_names()
+        ble = self._ble_evidence(device_mac, now)
+        offline = offline and not ble.get("active", False)
         stable_slug = self.stable_room_slug.get(device_mac)
         metadata = self.client_metadata.get(device_mac, {})
         connection = self._current_connection(device_mac, now)
@@ -563,6 +727,10 @@ class Locator:
             "shared_aps": 0,
             "coverage": 0.0,
             "method": "none",
+            "ble_room": room_names.get(ble.get("candidate_slug")),
+            "ble_confidence": ble.get("confidence", 0.0),
+            "ble_scanner_count": ble.get("scanner_count", 0),
+            "ble_rssi": ble.get("rssi"),
             **connection,
         }
         if offline:
@@ -570,16 +738,67 @@ class Locator:
         if visible_aps == 1:
             strongest_bssid = max(raw_vector, key=raw_vector.get) if raw_vector else None
             strongest_rssi = raw_vector.get(strongest_bssid) if strongest_bssid else None
-            hostname = self.ap_metadata.get(strongest_bssid, {}).get("hostname") if strongest_bssid else None
-            assignment = self.store.access_point_room_map().get(str(hostname).casefold()) if hostname else None
-            if assignment and assignment.get("room_slug") and strongest_rssi is not None and strongest_rssi >= self.single_ap_threshold:
+            hostname = (
+                self.ap_metadata.get(strongest_bssid, {}).get("hostname")
+                if strongest_bssid
+                else None
+            )
+            assignment = (
+                self.store.access_point_room_map().get(str(hostname).casefold())
+                if hostname
+                else None
+            )
+            if (
+                assignment
+                and assignment.get("room_slug")
+                and strongest_rssi is not None
+                and strongest_rssi >= self.single_ap_threshold
+            ):
                 slug = str(assignment["room_slug"])
-                result.update({"located": True, "instant_room_slug": slug, "instant_room": room_names.get(slug, slug), "confidence": 70.0, "method": "strong_single_ap"})
+                result.update(
+                    {
+                        "located": True,
+                        "instant_room_slug": slug,
+                        "instant_room": room_names.get(slug, slug),
+                        "confidence": 70.0,
+                        "method": "strong_single_ap",
+                    }
+                )
+            if ble.get("room_slug"):
+                result.update(
+                    {
+                        "located": True,
+                        "instant_room_slug": ble["room_slug"],
+                        "instant_room": room_names.get(ble["room_slug"], ble["room_slug"]),
+                        "confidence": ble["confidence"],
+                        "method": "ble_proximity",
+                    }
+                )
             return result
         if visible_aps < self.min_shared_aps:
+            if ble.get("room_slug"):
+                result.update(
+                    {
+                        "located": True,
+                        "instant_room_slug": ble["room_slug"],
+                        "instant_room": room_names.get(ble["room_slug"], ble["room_slug"]),
+                        "confidence": ble["confidence"],
+                        "method": "ble_proximity",
+                    }
+                )
             return result
         matches, match_method = self._room_matches(device_mac, vector)
         if not matches:
+            if ble.get("room_slug"):
+                result.update(
+                    {
+                        "located": True,
+                        "instant_room_slug": ble["room_slug"],
+                        "instant_room": room_names.get(ble["room_slug"], ble["room_slug"]),
+                        "confidence": ble["confidence"],
+                        "method": "ble_proximity",
+                    }
+                )
             return result
         ranked = sorted(matches.items(), key=lambda item: item[1].score)
         best_slug, best = ranked[0]
@@ -606,6 +825,19 @@ class Locator:
             result["instant_room"] = room_names.get(best_slug, best_slug)
             result["instant_room_slug"] = best_slug
             result["room_held"] = bool(stable_slug and stable_slug != best_slug)
+            if ble.get("room_slug") == best_slug:
+                result["confidence"] = round(min(100.0, confidence + 8.0), 1)
+                result["method"] = "wifi_ble_fusion"
+            elif ble.get("room_slug") and ble.get("confidence", 0) >= 80:
+                result.update(
+                    {
+                        "located": False,
+                        "instant_room": None,
+                        "instant_room_slug": None,
+                        "confidence": round(min(confidence, 49.0), 1),
+                        "method": "wifi_ble_conflict",
+                    }
+                )
         return result
 
     def _reset_candidate(self, device_mac: str) -> None:

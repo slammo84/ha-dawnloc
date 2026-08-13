@@ -1,0 +1,6 @@
+{
+  "config": {
+    "step": {"user": {"title": "DAWNLoc BLE Bridge", "description": "Sendet scannerspezifische Bluetooth-Beobachtungen lokal per MQTT an DAWNLoc.", "data": {"topic": "MQTT-Topic"}}},
+    "abort": {"already_configured": "DAWNLoc BLE Bridge ist bereits eingerichtet."}
+  }
+}

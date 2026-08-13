@@ -213,6 +213,32 @@ function renderFingerprints(list) {
     </table>`;
 }
 
+function renderBLE(data) {
+  const found = data.devices || [];
+  $('bleCount').textContent = `(${found.length})`;
+  const roomOptions = selected => '<option value="">Keinem Raum zugeordnet</option>' +
+    [...rooms.values()].map(room => `<option value="${esc(room.slug)}" ${room.slug === selected ? 'selected' : ''}>${esc(room.name)}</option>`).join('');
+  const deviceOptions = selected => '<option value="">Keinem Gerät zugeordnet</option>' +
+    [...devices.values()].filter(device => device.device_type === 'tracked').map(device => `<option value="${esc(device.mac)}" ${device.mac === selected ? 'selected' : ''}>${esc(device.name)}</option>`).join('');
+  const scanners = (data.scanners || []).map(scanner =>
+    `<div class="ap-group"><div><strong>${esc(scanner.name)}</strong><div class="radios">${esc(scanner.source)} · ${age(scanner.age_seconds)}</div></div>
+      <select data-ble-scanner="${esc(scanner.source)}" data-name="${esc(scanner.name)}">${roomOptions(scanner.mapping?.room_slug || '')}</select></div>`
+  ).join('');
+  const identities = found.map(item =>
+    `<div class="ap-group"><div><strong>${esc(item.name)}</strong><div class="radios">${esc(item.identity)} · ${item.scanners.length} Scanner · ${age(item.age_seconds)}</div></div>
+      <select data-ble-identity="${esc(item.identity)}" data-name="${esc(item.name)}">${deviceOptions(item.mapping?.device_mac || '')}</select></div>`
+  ).join('');
+  $('ble').innerHTML = `<h3>Scanner → Raum</h3>${scanners || '<p class="muted">Noch keine Scanner empfangen.</p>'}<h3>Beacon → Gerät</h3>${identities || '<p class="muted">Noch keine iBeacons empfangen.</p>'}`;
+  $('ble').querySelectorAll('[data-ble-scanner]').forEach(select => select.addEventListener('change', async () => {
+    await api('ble/scanner', {method:'POST', body:JSON.stringify({source:select.dataset.bleScanner,name:select.dataset.name,room_slug:select.value || null})});
+    await refresh();
+  }));
+  $('ble').querySelectorAll('[data-ble-identity]').forEach(select => select.addEventListener('change', async () => {
+    await api('ble/identity', {method:'POST', body:JSON.stringify({identity:select.dataset.bleIdentity,name:select.dataset.name,device_mac:select.value || null})});
+    await refresh();
+  }));
+}
+
 function calibrationError(error) {
   return {
     'errors.no_observations': 'Keine Messwerte empfangen.',
@@ -278,7 +304,7 @@ async function refresh() {
   refreshActive = true;
 
   try {
-    const [status, live, discovered, configuredDevices, configuredRooms, fingerprints, assignments] =
+    const [status, live, discovered, configuredDevices, configuredRooms, fingerprints, assignments, bluetooth] =
       await Promise.all([
         api('status'),
         api('live'),
@@ -287,6 +313,7 @@ async function refresh() {
         api('rooms'),
         api('fingerprints'),
         api('access-point-rooms'),
+        api('ble'),
       ]);
 
     apRooms = new Map(assignments.map(item => [item.hostname.toLowerCase(), item]));
@@ -297,6 +324,7 @@ async function refresh() {
     renderClients(discovered.clients);
     renderAPs(discovered.access_points);
     renderFingerprints(fingerprints);
+    renderBLE(bluetooth);
   } catch (error) {
     console.error(error);
   } finally {

@@ -41,15 +41,18 @@ class MQTTWorker:
         username: str | None,
         password: str | None,
         raw_topic: str,
+        ble_topic: str = "dawnloc/raw/ble",
     ) -> None:
         self.store = store
         self.locator = locator
         self.raw_topic = raw_topic
+        self.ble_topic = ble_topic
         self.host = host
         self.port = port
         self.connected = False
         self.stop_event = threading.Event()
         self.known_discovery_slugs: set[str] = set()
+        self.published_states: dict[str, str] = {}
         self.maintenance_thread: threading.Thread | None = None
 
         self.client = mqtt.Client(
@@ -93,8 +96,10 @@ class MQTTWorker:
     ) -> None:
         LOGGER.info("Connected to MQTT broker %s:%s (%s)", self.host, self.port, reason_code)
         self.connected = True
+        self.published_states.clear()
         client.publish(f"{BASE_TOPIC}/status", "online", retain=True)
         client.subscribe(self.raw_topic)
+        client.subscribe(self.ble_topic)
         client.subscribe("homeassistant/status")
         self.sync_discovery()
         self.publish_all_states()
@@ -121,6 +126,15 @@ class MQTTWorker:
             if message.payload.decode(errors="ignore").strip() == "online":
                 self.sync_discovery()
                 self.publish_all_states()
+            return
+
+        if message.topic == self.ble_topic:
+            try:
+                payload = json.loads(message.payload.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                LOGGER.warning("Discarding invalid BLE JSON received on %s", message.topic)
+                return
+            self.locator.ingest_ble(payload)
             return
 
         if message.topic != self.raw_topic:
@@ -189,14 +203,17 @@ class MQTTWorker:
                 ]
             )
         return [
-            f"{DISCOVERY_PREFIX}/{domain}/dawnloc_{slug}_{key}/config"
-            for domain, key in entities
+            f"{DISCOVERY_PREFIX}/{domain}/dawnloc_{slug}_{key}/config" for domain, key in entities
         ]
 
     def _clear_discovery(self, slug: str) -> None:
         for topic in self._discovery_topics(slug):
             self.client.publish(topic, "", retain=True)
         self.client.publish(f"{BASE_TOPIC}/device/{slug}/state", "", retain=True)
+        self.client.publish(f"{BASE_TOPIC}/device/{slug}/presence", "", retain=True)
+        self.client.publish(f"{BASE_TOPIC}/device/{slug}/room", "", retain=True)
+        self.published_states.pop(f"{slug}:presence", None)
+        self.published_states.pop(f"{slug}:room", None)
 
     def _process_cleanup(self) -> None:
         if not self.connected:
@@ -229,7 +246,8 @@ class MQTTWorker:
 
     def publish_discovery(self, device: dict[str, Any]) -> None:
         slug = device["slug"]
-        state_topic = f"{BASE_TOPIC}/device/{slug}/state"
+        presence_topic = f"{BASE_TOPIC}/device/{slug}/presence"
+        room_topic = f"{BASE_TOPIC}/device/{slug}/room"
         availability_topic = f"{BASE_TOPIC}/status"
         registry = self._device_registry(device)
         origin = {
@@ -249,13 +267,19 @@ class MQTTWorker:
                 retain=True,
             )
 
+        # Remove old, high-churn entities and the combined JSON state topic.
+        for topic in self._discovery_topics(slug, include_legacy=False):
+            if not topic.endswith(f"dawnloc_{slug}_tracker/config") and not topic.endswith(
+                f"dawnloc_{slug}_room/config"
+            ):
+                self.client.publish(topic, "", retain=True)
+        self.client.publish(f"{BASE_TOPIC}/device/{slug}/state", "", retain=True)
+
         tracker = {
             "name": device["name"],
             "unique_id": f"dawnloc_{slug}_tracker",
             "default_entity_id": f"device_tracker.{slug}",
-            "state_topic": state_topic,
-            "value_template": "{{ value_json.presence }}",
-            "json_attributes_topic": state_topic,
+            "state_topic": presence_topic,
             "source_type": "router",
             "availability_topic": availability_topic,
             "device": registry,
@@ -267,116 +291,38 @@ class MQTTWorker:
             retain=True,
         )
 
-        sensors: dict[str, dict[str, Any]] = {
-            "room": {
-                "name": "Raum",
-                "value_template": "{{ value_json.room }}",
-                "icon": "mdi:home-map-marker",
-            },
-            "instant_room": {
-                "name": "Aktuelle Raumzuordnung",
-                "value_template": "{{ value_json.instant_room }}",
-                "icon": "mdi:map-marker-question",
-                "entity_category": "diagnostic",
-            },
-            "confidence": {
-                "name": "Ortungssicherheit",
-                "value_template": "{{ value_json.confidence }}",
-                "unit_of_measurement": "%",
-                "icon": "mdi:signal",
-                "entity_category": "diagnostic",
-            },
-            "current_ap": {
-                "name": "Aktueller AP",
-                "value_template": "{{ value_json.current_ap }}",
-                "icon": "mdi:access-point",
-                "entity_category": "diagnostic",
-            },
-            "current_channel": {
-                "name": "WLAN-Kanal",
-                "value_template": "{{ value_json.current_channel }}",
-                "icon": "mdi:radio-tower",
-                "entity_category": "diagnostic",
-            },
-            "current_band": {
-                "name": "Frequenzband",
-                "value_template": "{{ value_json.current_band }}",
-                "icon": "mdi:wifi",
-                "entity_category": "diagnostic",
-            },
-            "visible_aps": {
-                "name": "Sichtbare APs",
-                "value_template": "{{ value_json.visible_aps }}",
-                "icon": "mdi:access-point-network",
-                "entity_category": "diagnostic",
-            },
-            "last_seen": {
-                "name": "Zuletzt gesehen",
-                "value_template": "{{ value_json.last_seen }}",
-                "device_class": "timestamp",
-                "entity_category": "diagnostic",
-            },
+        room = {
+            "name": "Raum",
+            "unique_id": f"dawnloc_{slug}_room",
+            "default_entity_id": f"sensor.{slug}_room",
+            "state_topic": room_topic,
+            "icon": "mdi:home-map-marker",
+            "availability_topic": availability_topic,
+            "device": registry,
+            "origin": origin,
         }
+        self.client.publish(
+            f"{DISCOVERY_PREFIX}/sensor/dawnloc_{slug}_room/config",
+            _json_payload(room),
+            retain=True,
+        )
 
-        for key, fields in sensors.items():
-            config = {
-                "unique_id": f"dawnloc_{slug}_{key}",
-                "default_entity_id": f"sensor.{slug}_{key}",
-                "state_topic": state_topic,
-                "availability_topic": availability_topic,
-                "device": registry,
-                "origin": origin,
-                **fields,
-            }
-            self.client.publish(
-                f"{DISCOVERY_PREFIX}/sensor/dawnloc_{slug}_{key}/config",
-                _json_payload(config),
-                retain=True,
-            )
+    def _publish_if_changed(self, slug: str, key: str, value: str) -> None:
+        cache_key = f"{slug}:{key}"
+        if self.published_states.get(cache_key) == value:
+            return
+        self.client.publish(f"{BASE_TOPIC}/device/{slug}/{key}", value, retain=True)
+        self.published_states[cache_key] = value
 
     def _publish_device_state(self, device: dict[str, Any]) -> None:
         state = self.locator.classify(device["mac"])
         stable_room = state.get("stable_room")
-        instant_room = state.get("instant_room")
         present = not state["offline"]
         room_known = bool(stable_room) and present
         room = stable_room if room_known else "Nicht geortet"
 
-        payload = {
-            "presence": "home" if present else "not_home",
-            "location": "home" if present else "not_home",
-            "room": room,
-            "instant_room": instant_room or "Unbekannt",
-            "confidence": state.get("confidence", 0.0),
-            "current_ap": state.get("current_ap") or "Unbekannt",
-            "current_channel": state.get("current_channel") or "Unbekannt",
-            "current_band": state.get("current_band") or "Unbekannt",
-            "current_frequency": state.get("current_frequency"),
-            "current_bssid": state.get("current_bssid") or "",
-            "current_ap_estimated": state.get("current_ap_estimated", False),
-            "strongest_ap": state.get("current_ap") or "Unbekannt",
-            "visible_aps": state.get("visible_aps", 0),
-            "visible_bssids": state.get("visible_bssids", 0),
-            "last_seen": state.get("last_seen_iso") or "",
-            "hostname": state.get("hostname") or "",
-            "ip_address": state.get("ip_address") or "",
-            "mac_address": device["mac"],
-            "offline": state["offline"],
-            "located": room_known,
-            "instant_located": state.get("located", False),
-            "room_held": state.get("room_held", False),
-            "age_seconds": state.get("age_seconds"),
-            "score": state.get("score"),
-            "shared_aps": state.get("shared_aps"),
-            "coverage": state.get("coverage"),
-            "rssi": state.get("vector"),
-            "method": state.get("method"),
-        }
-        self.client.publish(
-            f"{BASE_TOPIC}/device/{device['slug']}/state",
-            _json_payload(payload),
-            retain=True,
-        )
+        self._publish_if_changed(device["slug"], "presence", "home" if present else "not_home")
+        self._publish_if_changed(device["slug"], "room", room)
 
     def publish_device_state(self, device: dict[str, Any]) -> None:
         if device.get("device_type") == "reference":

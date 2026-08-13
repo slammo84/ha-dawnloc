@@ -4,7 +4,6 @@
 import time
 
 import pytest
-
 from app.locator import Locator
 from app.parser import parse_hearing_map
 from app.store import Store
@@ -85,3 +84,36 @@ def test_ap_assignment_is_per_hostname(store):
     assignment = store.set_access_point_room("AP-OFFICE", "office")
     assert assignment["room_slug"] == "office"
     assert store.access_point_room_map()["ap-office"]["room_slug"] == "office"
+
+
+def test_ble_samples_stay_in_memory_and_locate_mapped_device(store):
+    store.upsert_device(CLIENT, "Phone", "phone")
+    store.upsert_room("Kitchen", "kitchen")
+    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", CLIENT)
+    store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
+    locator = Locator(store, stable_seconds=0)
+    locator.ingest_ble(
+        {
+            "identity": "ibeacon:test:1:1",
+            "identity_type": "ibeacon",
+            "observations": [{"scanner_source": "scanner-kitchen", "rssi": -50}],
+        }
+    )
+    state = locator.classify(CLIENT)
+    assert state["offline"] is False
+    assert state["instant_room_slug"] == "kitchen"
+    assert state["method"] == "ble_proximity"
+    tables = {
+        row[0] for row in store.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert "ble_observations" not in tables
+
+
+def test_ble_mappings_are_in_full_export(store):
+    store.upsert_device(CLIENT, "Phone", "phone")
+    store.upsert_room("Kitchen", "kitchen")
+    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", CLIENT)
+    store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
+    data = store.export_data("all")
+    assert data["ble_identities"][0]["device_mac"] == CLIENT
+    assert data["ble_scanners"][0]["room_slug"] == "kitchen"
