@@ -143,7 +143,7 @@ class Locator:
         )
         self.ble_metadata: dict[str, dict[str, Any]] = {}
         self.ble_scanners: dict[str, dict[str, Any]] = {}
-        self.context_events: dict[str, tuple[str, float]] = {}
+        self.context_events: dict[str, dict[str, Any]] = {}
         self.person_stable_room: dict[str, str | None] = {}
         self.person_candidate: dict[str, tuple[str, float]] = {}
         self.ble_selected_room: dict[str, str] = {}
@@ -211,10 +211,20 @@ class Locator:
     def ingest_context(self, payload: dict[str, Any]) -> None:
         entity_id = payload.get("entity_id")
         state = payload.get("state")
-        if not isinstance(entity_id, str) or not isinstance(state, str):
+        rule = payload.get("rule")
+        if (
+            not isinstance(entity_id, str)
+            or not isinstance(state, str)
+            or not isinstance(rule, dict)
+            or rule.get("role") not in {"room", "transition"}
+        ):
             return
         with self.lock:
-            self.context_events[entity_id] = (state, time.time())
+            self.context_events[entity_id] = {
+                "state": state,
+                "timestamp": time.time(),
+                "rule": rule,
+            }
 
     def discovered_ble(self) -> dict[str, Any]:
         now = time.time()
@@ -885,16 +895,26 @@ class Locator:
         if ble.get("room_slug"):
             evidence.append((str(ble["room_slug"]), float(ble["confidence"]), "ble"))
 
-        def context_active(entity_id: str, max_age: float = 20.0) -> bool:
-            state, timestamp = self.context_events.get(entity_id, ("off", 0.0))
-            return state == "on" and now - timestamp <= max_age
-
-        if context_active("binary_sensor.bewegungsmelder_kuche_occupancy"):
-            evidence.append(("kuche", 18.0, "motion"))
-        if context_active("binary_sensor.sensor_vorne_presence") and context_active(
-            "binary_sensor.kontakt_haustur_contact", 45.0
-        ):
-            evidence.append(("parkplatz", 15.0, "transition"))
+        active_context: dict[str, dict[str, Any]] = {}
+        for entity_id, event in self.context_events.items():
+            rule = event["rule"]
+            max_age = float(rule.get("max_age", 20))
+            if (
+                event["state"] == str(rule.get("active_state", "on"))
+                and now - float(event["timestamp"]) <= max_age
+            ):
+                active_context[entity_id] = event
+        source_rooms = {room_slug for room_slug, _confidence, _method in evidence}
+        for entity_id, event in active_context.items():
+            rule = event["rule"]
+            if rule.get("role") != "room" or not isinstance(rule.get("room"), str):
+                continue
+            if rule["room"] not in source_rooms:
+                continue
+            requires = rule.get("requires", [])
+            if requires and not all(required in active_context for required in requires):
+                continue
+            evidence.append((str(rule["room"]), float(rule.get("weight", 15)), "context"))
         totals: dict[str, float] = defaultdict(float)
         methods: dict[str, set[str]] = defaultdict(set)
         for room_slug, confidence, method in evidence:
@@ -911,11 +931,15 @@ class Locator:
             if pending is None or pending[0] != candidate:
                 pending = (candidate, now)
                 self.person_candidate[person_slug] = pending
-            transition_active = context_active(
-                "binary_sensor.sensor_treppe_flur_presence", 15.0
-            ) or context_active("binary_sensor.bewegungsmelder_keller_occupancy", 15.0)
+            transition_delays = [
+                float(event["rule"].get("switch_seconds", 8))
+                for event in active_context.values()
+                if event["rule"].get("role") == "transition"
+            ]
             required_seconds = (
-                min(self.stable_seconds, 8.0) if transition_active else self.stable_seconds
+                min(self.stable_seconds, min(transition_delays))
+                if transition_delays
+                else self.stable_seconds
             )
             if now - pending[1] >= required_seconds:
                 stable = candidate

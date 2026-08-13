@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -10,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util.yaml import load_yaml
 
 from .const import CONF_TOPIC, DEFAULT_TOPIC
 
@@ -17,13 +19,45 @@ PUBLISH_INTERVAL = 10.0
 RSSI_CHANGE_THRESHOLD = 4
 MAX_IDENTITIES = 200
 CONTEXT_TOPIC = "dawnloc/raw/context"
-CONTEXT_ENTITIES = (
-    "binary_sensor.bewegungsmelder_keller_occupancy",
-    "binary_sensor.sensor_treppe_flur_presence",
-    "binary_sensor.bewegungsmelder_kuche_occupancy",
-    "binary_sensor.kontakt_haustur_contact",
-    "binary_sensor.sensor_vorne_presence",
-)
+CONTEXT_CONFIG_FILE = "dawnloc_context.yaml"
+LOGGER = logging.getLogger(__name__)
+
+
+def _context_rules(raw: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, dict) or not isinstance(raw.get("sensors"), dict):
+        return {}
+    rules: dict[str, dict[str, Any]] = {}
+
+    def number(value: Any, default: float, minimum: float, maximum: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(minimum, min(parsed, maximum))
+
+    for entity_id, value in raw["sensors"].items():
+        if not isinstance(entity_id, str) or not isinstance(value, dict):
+            continue
+        role = value.get("role")
+        if role not in {"room", "transition"}:
+            continue
+        rule = {
+            "role": role,
+            "active_state": str(value.get("active_state") or "on"),
+            "max_age": number(value.get("max_age"), 20, 1, 300),
+        }
+        if role == "room" and isinstance(value.get("room"), str):
+            rule["room"] = value["room"]
+            rule["weight"] = number(value.get("weight"), 15, 1, 40)
+            requires = value.get("requires")
+            if isinstance(requires, list):
+                rule["requires"] = [item for item in requires if isinstance(item, str)]
+        elif role == "transition":
+            rule["switch_seconds"] = number(value.get("switch_seconds"), 8, 0, 60)
+        else:
+            continue
+        rules[entity_id] = rule
+    return rules
 
 
 def _ibeacon_identity(manufacturer_data: dict[int, bytes]) -> str | None:
@@ -47,6 +81,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     topic = entry.data.get(CONF_TOPIC, DEFAULT_TOPIC)
     known: dict[str, bluetooth.BluetoothServiceInfoBleak] = {}
     last_published: dict[str, tuple[float, tuple[tuple[str, int], ...]]] = {}
+    context_path = hass.config.path(CONTEXT_CONFIG_FILE)
+    try:
+        context_config = await hass.async_add_executor_job(load_yaml, context_path)
+    except (OSError, ValueError):
+        context_config = {}
+    context_rules = _context_rules(context_config)
 
     @callback
     def publish(service_info: bluetooth.BluetoothServiceInfoBleak, *, force: bool = False) -> None:
@@ -143,6 +183,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "entity_id": new_state.entity_id,
             "state": new_state.state,
             "generated_at": time.time(),
+            "rule": context_rules[new_state.entity_id],
         }
         hass.create_task(
             mqtt.async_publish(
@@ -150,7 +191,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
 
-    entry.async_on_unload(async_track_state_change_event(hass, CONTEXT_ENTITIES, context_changed))
+    if context_rules:
+        entry.async_on_unload(
+            async_track_state_change_event(hass, tuple(context_rules), context_changed)
+        )
+    else:
+        LOGGER.info("No DAWNLoc context sensors configured in %s", context_path)
     return True
 
 

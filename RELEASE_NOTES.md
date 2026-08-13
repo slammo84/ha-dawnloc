@@ -2,13 +2,11 @@
 
 ## 0.2.0-beta.6
 
-- Geöffnete Signalwert-Details bleiben bei automatischen Aktualisierungen geöffnet.
-- Entfernt die experimentellen Raumanker einschließlich bestehender Ankerdaten.
-- Vereinfacht Geräteformular, Fingerprint-Ansicht und Kopfbereich.
-- Verwendet `AP-KELLER` als Bezeichnung der OpenWrt-Zentrale.
 - Führt WLAN-Geräte, iBeacons und Tags zu stabilen Personenstandorten zusammen.
-- Ergänzt BLE-Hysterese sowie ausgewählte Bewegungs- und Übergangssensoren.
-- Sichert Personen und Quellenzuordnungen im vollständigen Export.
+- Ergänzt konservative BLE-Hysterese und frei konfigurierbare Kontextsensoren.
+- Entfernt die experimentellen Raumanker und vereinfacht die Oberfläche.
+- Publiziert weiterhin ausschließlich stabile Anwesenheits- und Raumwechsel.
+- Hält BLE- und Kontextmesswerte flüchtig im Arbeitsspeicher.
 
 ## 0.2.0-beta.5
 

@@ -102,8 +102,8 @@ def test_ap_assignment_is_per_hostname(store):
 def test_ble_samples_stay_in_memory_and_locate_mapped_person(store):
     store.upsert_device(CLIENT, "Phone", "phone")
     store.upsert_room("Kitchen", "kitchen")
-    store.upsert_person("Marcel", "marcel", "person.marcel_etienne_gose")
-    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", "marcel")
+    store.upsert_person("Example Person", "example", "person.example")
+    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", "example")
     store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
     locator = Locator(store, stable_seconds=0)
     locator.ingest_ble(
@@ -113,7 +113,7 @@ def test_ble_samples_stay_in_memory_and_locate_mapped_person(store):
             "observations": [{"scanner_source": "scanner-kitchen", "rssi": -50}],
         }
     )
-    state = locator.classify_person("marcel")
+    state = locator.classify_person("example")
     assert state["offline"] is False
     assert state["instant_room_slug"] == "kitchen"
     assert state["method"] == "ble"
@@ -126,11 +126,11 @@ def test_ble_samples_stay_in_memory_and_locate_mapped_person(store):
 def test_ble_mappings_are_in_full_export(store):
     store.upsert_device(CLIENT, "Phone", "phone")
     store.upsert_room("Kitchen", "kitchen")
-    store.upsert_person("Marcel", "marcel")
-    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", "marcel")
+    store.upsert_person("Example Person", "example")
+    store.map_ble_identity("ibeacon:test:1:1", "Phone beacon", "example")
     store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
     data = store.export_data("all")
-    assert data["ble_identities"][0]["person_slug"] == "marcel"
+    assert data["ble_identities"][0]["person_slug"] == "example"
     assert data["ble_scanners"][0]["room_slug"] == "kitchen"
     assert data["persons"][0]["ha_person_entity"] is None
 
@@ -138,9 +138,9 @@ def test_ble_mappings_are_in_full_export(store):
 def test_person_combines_wifi_and_ble_sources(store):
     store.upsert_device(CLIENT, "Phone", "phone")
     store.upsert_room("Kitchen", "kitchen")
-    store.upsert_person("Marcel", "marcel")
-    store.assign_device_to_person(CLIENT, "marcel")
-    store.map_ble_identity("ibeacon:test:1:1", "Watch", "marcel")
+    store.upsert_person("Example Person", "example")
+    store.assign_device_to_person(CLIENT, "example")
+    store.map_ble_identity("ibeacon:test:1:1", "Watch", "example")
     store.map_ble_scanner("scanner-kitchen", "Kitchen proxy", "kitchen")
     locator = Locator(store, stable_seconds=0)
     locator.ingest_ble(
@@ -149,6 +149,24 @@ def test_person_combines_wifi_and_ble_sources(store):
             "observations": [{"scanner_source": "scanner-kitchen", "rssi": -45}],
         }
     )
-    state = locator.classify_person("marcel")
+    state = locator.classify_person("example")
     assert state["stable_room_slug"] == "kitchen"
     assert state["offline"] is False
+
+
+def test_context_rules_are_generic_and_memory_only(store):
+    store.upsert_person("Example Person", "example")
+    locator = Locator(store, stable_seconds=0)
+    locator.ingest_context(
+        {
+            "entity_id": "binary_sensor.any_motion",
+            "state": "on",
+            "rule": {"role": "room", "room": "office", "weight": 20, "max_age": 30},
+        }
+    )
+    state = locator.classify_person("example")
+    assert state["instant_room_slug"] is None
+    tables = {
+        row[0] for row in store.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    assert "context_events" not in tables

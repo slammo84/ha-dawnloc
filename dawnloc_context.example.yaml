@@ -1,0 +1,35 @@
+# Copy this file to /config/dawnloc_context.yaml on Home Assistant.
+# Restart Home Assistant after changing the file.
+version: 1
+
+sensors:
+  # A room sensor confirms an existing DawnLoc room for a short time.
+  binary_sensor.example_kitchen_motion:
+    role: room
+    room: kuche
+    active_state: "on"
+    weight: 18
+    max_age: 20
+
+  # A room rule may require another recent sensor, for example an open door.
+  binary_sensor.example_front_presence:
+    role: room
+    room: parkplatz
+    weight: 15
+    max_age: 20
+    requires:
+      - binary_sensor.example_front_door
+
+  binary_sensor.example_front_door:
+    role: transition
+    active_state: "on"
+    max_age: 45
+    switch_seconds: 8
+
+  # Transition sensors do not identify a person or room by themselves. They
+  # merely allow a well-supported WLAN/BLE room change to settle more quickly.
+  binary_sensor.example_stairs:
+    role: transition
+    active_state: "on"
+    max_age: 15
+    switch_seconds: 8
